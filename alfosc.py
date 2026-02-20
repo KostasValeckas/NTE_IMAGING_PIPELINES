@@ -16,7 +16,8 @@ alfosc = Instrument(
 
     filter_keyword = (["ALFLTNM", "FAFLTNM", "FBFLTNM"], 0),
 
-
+    obsmode_keyword = (("OBS_MODE", 0)),
+    imaging_obsmode_keyword = (("IMAGING", 0)),
     imagetype_keyword = (("IMAGETYP", 0)),
     bias_keyword = (["BIAS"]),
     dark_keyword = (["DARK"]),

@@ -39,18 +39,22 @@ class ReductionPipeline:
 
             filepath = os.path.join(self.raw_data_path, filename)
 
-            header_extension = self.instrument.imagetype_keyword[1]
+            header_extension_imtype = self.instrument.imagetype_keyword[1]
+            header_extension_obsmode = self.instrument.obsmode_keyword[1]
 
             # Get header to determine image type
-            header = self.get_fits_header(filepath, header_extension)
-            if header is None:
+            header_imtype = self.get_fits_header(filepath, header_extension_imtype)
+            header_obsmode = self.get_fits_header(filepath, header_extension_obsmode)
+
+            if header_imtype is None or header_obsmode  is None:
                 self.logger.warning(f"Could not read header from {filename}, skipping")
                 continue
 
             imagetype_keyword = self.instrument.imagetype_keyword[0]
+            obsmode_keyword = self.instrument.obsmode_keyword[0]
 
             image_type = self.instrument.match_image_type(
-                header.get(imagetype_keyword, "")
+                header_imtype.get(imagetype_keyword, ""), header_obsmode.get(obsmode_keyword, "")
             )
 
             if image_type == ImageType.BIAS:

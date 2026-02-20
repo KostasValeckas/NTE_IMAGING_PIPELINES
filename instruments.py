@@ -44,6 +44,8 @@ class Instrument:
         detector: Optional[Detector] = None,
         telescope: Optional[Telescope] = None,
         filter_keyword: Optional[tuple[list[str], int]] = None,
+        obsmode_keyword: Optional[tuple[str, int]] = None,
+        imaging_obsmode_keyword: Optional[tuple[str, int]] = None,
         imagetype_keyword: Optional[tuple[str, int]] = None,
         bias_keyword: Optional[list[str]] = None,
         dark_keyword: Optional[list[str]] = None,
@@ -55,6 +57,11 @@ class Instrument:
 
         self.filter_keyword = filter_keyword if filter_keyword is not None else ([], 0)
 
+
+        self.obsmode_keyword = obsmode_keyword if obsmode_keyword is not None else (None, 0)
+        self.imaging_obsmode_keyword = (
+            imaging_obsmode_keyword if imaging_obsmode_keyword is not None else (None, 0)
+        )
         self.imagetype_keyword = (
             imagetype_keyword if imagetype_keyword is not None else (None, 0)
         )
@@ -63,12 +70,15 @@ class Instrument:
         self.flat_keyword = flat_keyword if flat_keyword is not None else []
         self.science_keyword = science_keyword if science_keyword is not None else []
 
-    def match_image_type(self, keyword: Optional[str]) -> Optional[ImageType]:
-        if not keyword:
+    def match_image_type(self, keyword_imtype: Optional[str], keyword_obsmode: Optional[str]) -> Optional[ImageType]:
+        if not keyword_imtype and not keyword_obsmode:
             return None
-        k = str(keyword).strip().upper()
+        
+        #TODO: REFACTOR
+        k = str(keyword_imtype).strip().upper() if keyword_imtype else None
+        o = str(keyword_obsmode).strip().upper() if keyword_obsmode else None
 
-        print(f"Matching keyword: {k}")
+        print(f"Matching keyword: {k}, obsmode: {o}")
 
         def _matches(lst: list[str]) -> bool:
             print(f"Checking against list: {lst}")
@@ -80,10 +90,10 @@ class Instrument:
         if _matches(self.dark_keyword):
             print("Matched dark keyword")
             return ImageType.DARK
-        if _matches(self.flat_keyword):
+        if _matches(self.flat_keyword) and o == self.imaging_obsmode_keyword[0]:
             print("Matched flat keyword")
             return ImageType.FLAT
-        if _matches(self.science_keyword):
+        if _matches(self.science_keyword) and o == self.imaging_obsmode_keyword[0]:
             print("Matched science keyword")
             return ImageType.SCIENCE
         return None

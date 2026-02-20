@@ -124,3 +124,40 @@
 2026-02-20 13:57:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:152 - Successfully opened FITS file: test_data/ALJb190206.fits
 2026-02-20 13:57:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:130 - Created setup table with 1 unique setups
 2026-02-20 13:57:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:131 - Setup table contents: {0: {'window': '[1:2148, 1:2102]', 'bin_x': 1, 'bin_y': 1, 'filter': ['R_Bes 650_130', 'Open', 'Open']}}
+2026-02-20 14:45:45 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 14:45:45 - NTE_IMAGING_PIPELINE - INFO - reduction.py:172 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 14:46:41 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 14:46:41 - NTE_IMAGING_PIPELINE - INFO - reduction.py:172 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 14:46:41 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:65 - Unknown image type for ALJb190038.fits
+2026-02-20 14:46:41 - NTE_IMAGING_PIPELINE - INFO - reduction.py:172 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 14:46:41 - NTE_IMAGING_PIPELINE - INFO - reduction.py:172 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 14:46:41 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:65 - Unknown image type for ALJb190206.fits
+2026-02-20 14:46:41 - NTE_IMAGING_PIPELINE - INFO - reduction.py:72 - Sorted files: 1 bias, 0 dark, 0 flat, 0 science
+2026-02-20 14:46:41 - NTE_IMAGING_PIPELINE - INFO - reduction.py:130 - Created setup table with 0 unique setups
+2026-02-20 14:46:41 - NTE_IMAGING_PIPELINE - INFO - reduction.py:131 - Setup table contents: {}
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:69 - Unknown image type for ALJb190038.fits
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:69 - Unknown image type for ALJb190206.fits
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - INFO - reduction.py:76 - Sorted files: 1 bias, 0 dark, 0 flat, 0 science
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - INFO - reduction.py:134 - Created setup table with 0 unique setups
+2026-02-20 14:49:31 - NTE_IMAGING_PIPELINE - INFO - reduction.py:135 - Setup table contents: {}
+2026-02-20 14:49:52 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 14:49:52 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 14:49:52 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 14:50:03 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 14:50:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 14:50:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 14:50:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 14:50:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 14:50:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 14:50:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:176 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 14:50:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:76 - Sorted files: 1 bias, 0 dark, 1 flat, 1 science
+2026-02-20 14:50:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:156 - Successfully opened FITS file: test_data/ALJb190206.fits
+2026-02-20 14:50:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:134 - Created setup table with 1 unique setups
+2026-02-20 14:50:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:135 - Setup table contents: {0: {'window': '[1:2148, 1:2102]', 'bin_x': 1, 'bin_y': 1, 'filter': ['R_Bes 650_130', 'Open', 'Open']}}
