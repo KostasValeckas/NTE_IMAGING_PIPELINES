@@ -1,7 +1,7 @@
-
 import logging
 from colorama import Fore, Style, init
 import pathlib
+
 
 def init_logger(path):
 
@@ -9,7 +9,7 @@ def init_logger(path):
     init(autoreset=True)
 
     # Create a custom logger
-    
+
     logger = logging.getLogger("NTE_IMAGING_PIPELINE")
 
     # Close and remove leftover handlers
@@ -30,7 +30,6 @@ def init_logger(path):
     fh = logging.FileHandler(log_file_path)
     ch = logging.StreamHandler()
 
-
     # Create a custom formatter - this allows different colors for different log levels
     class CustomFormatter(logging.Formatter):
         def format(self, record):
@@ -45,7 +44,6 @@ def init_logger(path):
                     f"{Fore.RED}{record.levelname}{Style.BRIGHT}{Style.RESET_ALL}"
                 )
             return super().format(record)
-
 
     # For filelogging we add the dates, for console logging we don't
     formatter = logging.Formatter(

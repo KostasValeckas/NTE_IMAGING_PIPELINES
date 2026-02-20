@@ -81,3 +81,46 @@
 2026-02-20 13:13:51 - NTE_IMAGING_PIPELINE - INFO - reduction.py:111 - Successfully read header from: test_data/ALJb190378.fits
 2026-02-20 13:13:51 - NTE_IMAGING_PIPELINE - INFO - reduction.py:111 - Successfully read header from: test_data/ALJb190206.fits
 2026-02-20 13:13:51 - NTE_IMAGING_PIPELINE - INFO - reduction.py:70 - Sorted files: 1 bias, 0 dark, 1 flat, 1 science
+2026-02-20 13:28:10 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:28:10 - NTE_IMAGING_PIPELINE - INFO - reduction.py:125 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:28:10 - NTE_IMAGING_PIPELINE - INFO - reduction.py:125 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:28:10 - NTE_IMAGING_PIPELINE - INFO - reduction.py:125 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:28:10 - NTE_IMAGING_PIPELINE - INFO - reduction.py:72 - Sorted files: 1 bias, 0 dark, 1 flat, 1 science
+2026-02-20 13:50:33 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:50:33 - NTE_IMAGING_PIPELINE - INFO - reduction.py:149 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:50:33 - NTE_IMAGING_PIPELINE - INFO - reduction.py:149 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:50:33 - NTE_IMAGING_PIPELINE - INFO - reduction.py:149 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:50:33 - NTE_IMAGING_PIPELINE - INFO - reduction.py:72 - Sorted files: 1 bias, 0 dark, 1 flat, 1 science
+2026-02-20 13:50:47 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:50:47 - NTE_IMAGING_PIPELINE - INFO - reduction.py:149 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:50:47 - NTE_IMAGING_PIPELINE - INFO - reduction.py:149 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:50:47 - NTE_IMAGING_PIPELINE - INFO - reduction.py:149 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:50:47 - NTE_IMAGING_PIPELINE - INFO - reduction.py:72 - Sorted files: 1 bias, 0 dark, 1 flat, 1 science
+2026-02-20 13:50:47 - NTE_IMAGING_PIPELINE - INFO - reduction.py:129 - Successfully opened FITS file: test_data/ALJb190206.fits
+2026-02-20 13:52:53 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:52:53 - NTE_IMAGING_PIPELINE - INFO - reduction.py:158 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:52:53 - NTE_IMAGING_PIPELINE - INFO - reduction.py:158 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:52:53 - NTE_IMAGING_PIPELINE - INFO - reduction.py:158 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:52:53 - NTE_IMAGING_PIPELINE - INFO - reduction.py:72 - Sorted files: 1 bias, 0 dark, 1 flat, 1 science
+2026-02-20 13:52:53 - NTE_IMAGING_PIPELINE - INFO - reduction.py:138 - Successfully opened FITS file: test_data/ALJb190206.fits
+2026-02-20 13:54:55 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:54:55 - NTE_IMAGING_PIPELINE - INFO - reduction.py:158 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:54:55 - NTE_IMAGING_PIPELINE - INFO - reduction.py:158 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:54:55 - NTE_IMAGING_PIPELINE - INFO - reduction.py:158 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:54:55 - NTE_IMAGING_PIPELINE - INFO - reduction.py:72 - Sorted files: 1 bias, 0 dark, 1 flat, 1 science
+2026-02-20 13:54:55 - NTE_IMAGING_PIPELINE - INFO - reduction.py:138 - Successfully opened FITS file: test_data/ALJb190206.fits
+2026-02-20 13:56:43 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:56:43 - NTE_IMAGING_PIPELINE - INFO - reduction.py:172 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:56:43 - NTE_IMAGING_PIPELINE - INFO - reduction.py:172 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:56:43 - NTE_IMAGING_PIPELINE - INFO - reduction.py:172 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:56:43 - NTE_IMAGING_PIPELINE - INFO - reduction.py:72 - Sorted files: 1 bias, 0 dark, 1 flat, 1 science
+2026-02-20 13:56:43 - NTE_IMAGING_PIPELINE - INFO - reduction.py:152 - Successfully opened FITS file: test_data/ALJb190206.fits
+2026-02-20 13:56:43 - NTE_IMAGING_PIPELINE - INFO - reduction.py:130 - Created setup table with 1 unique setups
+2026-02-20 13:57:03 - NTE_IMAGING_PIPELINE - INFO - logger.py:65 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:57:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:172 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:57:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:172 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:57:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:172 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:57:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:72 - Sorted files: 1 bias, 0 dark, 1 flat, 1 science
+2026-02-20 13:57:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:152 - Successfully opened FITS file: test_data/ALJb190206.fits
+2026-02-20 13:57:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:130 - Created setup table with 1 unique setups
+2026-02-20 13:57:03 - NTE_IMAGING_PIPELINE - INFO - reduction.py:131 - Setup table contents: {0: {'window': '[1:2148, 1:2102]', 'bin_x': 1, 'bin_y': 1, 'filter': ['R_Bes 650_130', 'Open', 'Open']}}

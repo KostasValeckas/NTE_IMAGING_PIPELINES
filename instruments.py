@@ -25,8 +25,8 @@ class Detector:
     dark_current: Optional[tuple[str, int]] = None
     pixel_scale: Optional[tuple[str, int]] = None
     field_of_view: Optional[tuple[str, int]] = None
-    window_keyword: Optional[tuple[str, int]] = None,
-    bin_x_keyword: Optional[tuple[str, int]] = None,
+    window_keyword: Optional[tuple[str, int]] = (None,)
+    bin_x_keyword: Optional[tuple[str, int]] = (None,)
     bin_y_keyword: Optional[tuple[str, int]] = None
 
 
@@ -43,7 +43,8 @@ class Instrument:
         self,
         detector: Optional[Detector] = None,
         telescope: Optional[Telescope] = None,
-        imagetype_keyword: Optional[list[str]] = None,
+        filter_keyword: Optional[tuple[list[str], int]] = None,
+        imagetype_keyword: Optional[tuple[str, int]] = None,
         bias_keyword: Optional[list[str]] = None,
         dark_keyword: Optional[list[str]] = None,
         flat_keyword: Optional[list[str]] = None,
@@ -52,7 +53,11 @@ class Instrument:
         self.detector = detector if detector is not None else Detector()
         self.telescope = telescope if telescope is not None else Telescope()
 
-        self.imagetype_keyword = imagetype_keyword if imagetype_keyword is not None else []
+        self.filter_keyword = filter_keyword if filter_keyword is not None else ([], 0)
+
+        self.imagetype_keyword = (
+            imagetype_keyword if imagetype_keyword is not None else (None, 0)
+        )
         self.bias_keyword = bias_keyword if bias_keyword is not None else []
         self.dark_keyword = dark_keyword if dark_keyword is not None else []
         self.flat_keyword = flat_keyword if flat_keyword is not None else []
