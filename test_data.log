@@ -1,0 +1,83 @@
+2026-02-20 13:02:30 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:02:30 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:02:30 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190038.fits
+2026-02-20 13:02:30 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:02:30 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190378.fits
+2026-02-20 13:02:30 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:02:30 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190206.fits
+2026-02-20 13:02:30 - NTE_IMAGING_PIPELINE - INFO - reduction.py:68 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
+2026-02-20 13:05:25 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:05:25 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:05:25 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190038.fits
+2026-02-20 13:05:25 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:05:25 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190378.fits
+2026-02-20 13:05:25 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:05:25 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190206.fits
+2026-02-20 13:05:25 - NTE_IMAGING_PIPELINE - INFO - reduction.py:68 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
+2026-02-20 13:06:19 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:06:19 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:06:19 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190038.fits
+2026-02-20 13:06:19 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:06:19 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190378.fits
+2026-02-20 13:06:19 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:06:19 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190206.fits
+2026-02-20 13:06:19 - NTE_IMAGING_PIPELINE - INFO - reduction.py:68 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
+2026-02-20 13:06:57 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:06:57 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:06:57 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190038.fits
+2026-02-20 13:06:57 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:06:57 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190378.fits
+2026-02-20 13:06:57 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:06:57 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190206.fits
+2026-02-20 13:06:57 - NTE_IMAGING_PIPELINE - INFO - reduction.py:68 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
+2026-02-20 13:07:04 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:07:04 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:07:04 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190038.fits
+2026-02-20 13:07:04 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:07:04 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190378.fits
+2026-02-20 13:07:04 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:07:04 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190206.fits
+2026-02-20 13:07:04 - NTE_IMAGING_PIPELINE - INFO - reduction.py:68 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
+2026-02-20 13:08:54 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:08:54 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:08:54 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190038.fits
+2026-02-20 13:08:54 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:08:54 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190378.fits
+2026-02-20 13:08:54 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:08:54 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190206.fits
+2026-02-20 13:08:54 - NTE_IMAGING_PIPELINE - INFO - reduction.py:68 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
+2026-02-20 13:09:15 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:09:15 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:09:15 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190038.fits
+2026-02-20 13:09:15 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:09:15 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190378.fits
+2026-02-20 13:09:15 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:09:15 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190206.fits
+2026-02-20 13:09:15 - NTE_IMAGING_PIPELINE - INFO - reduction.py:68 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
+2026-02-20 13:09:51 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:09:51 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:09:51 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190038.fits
+2026-02-20 13:09:51 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:09:51 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190378.fits
+2026-02-20 13:09:51 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:09:51 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190206.fits
+2026-02-20 13:09:51 - NTE_IMAGING_PIPELINE - INFO - reduction.py:68 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
+2026-02-20 13:10:20 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:10:20 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:10:20 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190038.fits
+2026-02-20 13:10:20 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:10:20 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190378.fits
+2026-02-20 13:10:20 - NTE_IMAGING_PIPELINE - INFO - reduction.py:109 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:10:20 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:61 - Unknown image type for ALJb190206.fits
+2026-02-20 13:10:20 - NTE_IMAGING_PIPELINE - INFO - reduction.py:68 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
+2026-02-20 13:13:08 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:13:08 - NTE_IMAGING_PIPELINE - INFO - reduction.py:111 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:13:08 - NTE_IMAGING_PIPELINE - WARNING - reduction.py:63 - Unknown image type for ALJb190038.fits
+2026-02-20 13:13:08 - NTE_IMAGING_PIPELINE - INFO - reduction.py:111 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:13:08 - NTE_IMAGING_PIPELINE - INFO - reduction.py:111 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:13:08 - NTE_IMAGING_PIPELINE - INFO - reduction.py:70 - Sorted files: 1 bias, 0 dark, 0 flat, 1 science
+2026-02-20 13:13:51 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/test_data.log.
+2026-02-20 13:13:51 - NTE_IMAGING_PIPELINE - INFO - reduction.py:111 - Successfully read header from: test_data/ALJb190038.fits
+2026-02-20 13:13:51 - NTE_IMAGING_PIPELINE - INFO - reduction.py:111 - Successfully read header from: test_data/ALJb190378.fits
+2026-02-20 13:13:51 - NTE_IMAGING_PIPELINE - INFO - reduction.py:111 - Successfully read header from: test_data/ALJb190206.fits
+2026-02-20 13:13:51 - NTE_IMAGING_PIPELINE - INFO - reduction.py:70 - Sorted files: 1 bias, 0 dark, 1 flat, 1 science

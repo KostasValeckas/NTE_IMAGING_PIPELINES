@@ -19,20 +19,23 @@ class FitsHeaderEntry:
 
 @dataclass
 class Detector:
-    gain: Optional[float] = None
-    read_noise: Optional[float] = None
-    saturation_level: Optional[float] = None
-    dark_current: Optional[float] = None
-    pixel_scale: Optional[float] = None
-    field_of_view: Optional[float] = None
+    gain: Optional[tuple[str, int]] = None
+    read_noise: Optional[tuple[str, int]] = None
+    saturation_level: Optional[tuple[str, int]] = None
+    dark_current: Optional[tuple[str, int]] = None
+    pixel_scale: Optional[tuple[str, int]] = None
+    field_of_view: Optional[tuple[str, int]] = None
+    window_keyword: Optional[tuple[str, int]] = None,
+    bin_x_keyword: Optional[tuple[str, int]] = None,
+    bin_y_keyword: Optional[tuple[str, int]] = None
 
 
 @dataclass
 class Telescope:
-    name: Optional[str] = None
-    aperture: Optional[float] = None
-    focal_length: Optional[float] = None
-    location: Optional[str] = None
+    name: Optional[tuple[str, int]] = None
+    aperture: Optional[tuple[str, int]] = None
+    focal_length: Optional[tuple[str, int]] = None
+    location: Optional[tuple[str, int]] = None
 
 
 class Instrument:
@@ -40,31 +43,42 @@ class Instrument:
         self,
         detector: Optional[Detector] = None,
         telescope: Optional[Telescope] = None,
-        imagetype_keyword: Optional[str] = None,
-        bias_keyword: Optional[str] = None,
-        dark_keyword: Optional[str] = None,
-        flat_keyword: Optional[str] = None,
-        science_keyword: Optional[str] = None,
+        imagetype_keyword: Optional[list[str]] = None,
+        bias_keyword: Optional[list[str]] = None,
+        dark_keyword: Optional[list[str]] = None,
+        flat_keyword: Optional[list[str]] = None,
+        science_keyword: Optional[list[str]] = None,
     ):
         self.detector = detector if detector is not None else Detector()
         self.telescope = telescope if telescope is not None else Telescope()
 
-        self.imagetype_keyword = imagetype_keyword
-        self.bias_keyword = bias_keyword
-        self.dark_keyword = dark_keyword
-        self.flat_keyword = flat_keyword
-        self.science_keyword = science_keyword
+        self.imagetype_keyword = imagetype_keyword if imagetype_keyword is not None else []
+        self.bias_keyword = bias_keyword if bias_keyword is not None else []
+        self.dark_keyword = dark_keyword if dark_keyword is not None else []
+        self.flat_keyword = flat_keyword if flat_keyword is not None else []
+        self.science_keyword = science_keyword if science_keyword is not None else []
 
-    def match_image_type(self):
+    def match_image_type(self, keyword: Optional[str]) -> Optional[ImageType]:
+        if not keyword:
+            return None
+        k = str(keyword).strip().upper()
 
-        match self.imagetype_keyword:
-            case self.bias_keyword:
-                return ImageType.BIAS
-            case self.dark_keyword:
-                return ImageType.DARK
-            case self.flat_keyword:
-                return ImageType.FLAT
-            case self.science_keyword:
-                return ImageType.SCIENCE
-            case _:
-                return None
+        print(f"Matching keyword: {k}")
+
+        def _matches(lst: list[str]) -> bool:
+            print(f"Checking against list: {lst}")
+            return any(k == item for item in lst)
+
+        if _matches(self.bias_keyword):
+            print("Matched bias keyword")
+            return ImageType.BIAS
+        if _matches(self.dark_keyword):
+            print("Matched dark keyword")
+            return ImageType.DARK
+        if _matches(self.flat_keyword):
+            print("Matched flat keyword")
+            return ImageType.FLAT
+        if _matches(self.science_keyword):
+            print("Matched science keyword")
+            return ImageType.SCIENCE
+        return None
