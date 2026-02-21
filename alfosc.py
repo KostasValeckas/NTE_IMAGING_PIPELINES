@@ -14,6 +14,8 @@ alfosc = Instrument(
 
     detector = alfosc_ccd,
 
+    data_hdu_extension= 1,
+
     filter_keyword = (["ALFLTNM", "FAFLTNM", "FBFLTNM"], 0),
 
     obsmode_keyword = (("OBS_MODE", 0)),

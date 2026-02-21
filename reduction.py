@@ -3,8 +3,12 @@ import os
 from logger import init_logger
 from astropy.io import fits
 import numpy as np
+import matplotlib.pyplot as plt
 
 from instruments import ImageType
+import math
+from ccdproc import Combiner, CCDData
+from astropy import units as u
 
 
 class ReductionPipeline:
@@ -22,6 +26,7 @@ class ReductionPipeline:
         self.science_files = None
 
         self.setup_table = {}
+        self.bias_configurations = {}
 
     def sort_data(self):
 
@@ -179,28 +184,243 @@ class ReductionPipeline:
             self.logger.error(f"Error reading header from {filepath}: {e}")
             return None
 
-    def get_fits_data(self, filepath, extension=0):
+    def get_fits_data(self, filepath):
         """
-        Get the data from a FITS file
+        Get the data from a FITS file as a CCDData object
 
         Args:
             filepath (str): Path to the FITS file
-            extension (int): Extension number (default: 0 for primary)
 
         Returns:
-            numpy.ndarray: The FITS data
+            ccdproc.CCDData: The FITS data as CCDData object with header and units
         """
+
+        extension = self.instrument.data_hdu_extension if self.instrument.data_hdu_extension is not None else 0
+
         try:
             with fits.open(filepath) as hdul:
-                data = hdul[extension].data.copy()
-                self.logger.info(f"Successfully read data from: {filepath}")
-                return data
+                data = hdul[extension].data
+                header = hdul[extension].header
+                
+                # Create CCDData object with units (assuming ADU for astronomical data)
+                ccd_data = CCDData(data, unit=u.adu, header=header)
+                self.logger.info(f"Successfully read data from: {filepath} as CCDData")
+                return ccd_data
         except Exception as e:
             self.logger.error(f"Error reading data from {filepath}: {e}")
             return None
+        
+
+    def determine_bias_configurations(self):
+        
+        """
+        Build a new dict of unique detector configurations from self.setup_table,
+        keeping only the 'window', 'bin_x' and 'bin_y' entries.
+        """
+
+        if not getattr(self, "setup_table", None):
+            self.logger.info("No setup table available to determine bias configurations.")
+            self.bias_configurations = {}
+            return self.bias_configurations
+        
+        unique_map = {}
+        seen = set()
+        idx = 0
+        for entry in self.setup_table.values():
+            w = entry.get("window")
+            bx = entry.get("bin_x")
+            by = entry.get("bin_y")
+            key = (w, bx, by)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_map[idx] = {"window": w, "bin_x": bx, "bin_y": by}
+            idx += 1
+
+        self.bias_configurations = unique_map
+
+        self.logger.info(f"Found {len(unique_map)} unique bias configurations")
+        self.logger.info(f"Bias configurations: {self.bias_configurations}")
+
+
+    def make_master_bias(self):
+        
+        raw_frame_dict = {}
+
+        for file in self.bias_files:
+
+            hdul = self.open_fits_file(file)
+
+            if hdul is None:
+                self.logger.warning(f"Could not open {file}, skipping")
+                continue
+
+            window_header_extension = self.instrument.detector.window_keyword[1]
+            bin_x_header_extension = self.instrument.detector.bin_x_keyword[1]
+            bin_y_header_extension = self.instrument.detector.bin_y_keyword[1]
+
+            window_keyword = self.instrument.detector.window_keyword[0]
+            bin_x_keyword = self.instrument.detector.bin_x_keyword[0]
+            bin_y_keyword = self.instrument.detector.bin_y_keyword[0]
+
+            window = hdul[window_header_extension].header.get(window_keyword, "UNKNOWN")
+            bin_x = hdul[bin_x_header_extension].header.get(bin_x_keyword, "UNKNOWN")
+            bin_y = hdul[bin_y_header_extension].header.get(bin_y_keyword, "UNKNOWN")
+
+            key = (window, bin_x, bin_y)
+
+            if not getattr(self, "bias_configurations", None):
+                self.logger.warning(f"No bias configurations available; skipping {file}")
+                continue
+
+            matched_idx = next(
+                (
+                    idx
+                    for idx, cfg in self.bias_configurations.items()
+                    if (cfg.get("window"), cfg.get("bin_x"), cfg.get("bin_y")) == key
+                ),
+                None,
+            )
+
+            if matched_idx is None:
+                self.logger.warning(f"No matching bias configuration for {key} in file {file}, skipping")
+                continue
+
+            data = self.get_fits_data(file)
+            if data is None:
+                self.logger.warning(f"Could not read data from {file}, skipping")
+                continue
+
+            # store CCDData object under the integer configuration key; append if multiple frames
+            raw_frame_dict.setdefault(matched_idx, []).append(data)
+            self.logger.info(f"Appended CCDData for {file} to raw_frame_dict[{matched_idx}] (total {len(raw_frame_dict[matched_idx])} frames)")
+
+
+        self.master_biases = {}
+
+        if not raw_frame_dict:
+            self.logger.info("No bias frames to combine.")
+            return
+
+        for cfg_idx, frames in raw_frame_dict.items():
+            if not frames:
+                self.logger.warning(f"No frames for configuration {cfg_idx}, skipping")
+                continue
+
+            try:
+                # Use CCDData objects directly with Combiner
+                comb = Combiner(frames)
+                master = comb.median_combine()
+                self.logger.info(f"Combined {len(frames)} CCDData frames using ccdproc.Combiner with sigma clipping")
+            except Exception as e:
+                # Fallback to numpy median if Combiner fails
+                self.logger.warning(f"ccdproc.Combiner failed for config {cfg_idx}: {e}. Falling back to numpy.median")
+                try:
+                    # Extract data arrays from CCDData objects for numpy fallback
+                    data_arrays = [frame.data for frame in frames]
+                    stacked = np.stack(data_arrays, axis=0)
+                    median_data = np.median(stacked, axis=0)
+                    # Create a new CCDData object with the combined data
+                    master = CCDData(median_data, unit=frames[0].unit, header=frames[0].header)
+                except Exception as fallback_error:
+                    self.logger.error(f"Both ccdproc and numpy fallback failed for config {cfg_idx}: {fallback_error}")
+                    continue
+
+            self.master_biases[cfg_idx] = master
+            self.logger.info(f"Created master bias for config {cfg_idx} from {len(frames)} frames")
+
+        # Plot the masters
+        n_masters = len(self.master_biases)
+        if n_masters == 0:
+            self.logger.info("No master bias frames to plot.")
+        else:
+            ncols = min(3, n_masters)
+            nrows = math.ceil(n_masters / ncols)
+            fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
+            # Normalize axes array shape for consistent indexing
+            if isinstance(axes, np.ndarray):
+                axes_flat = axes.flatten()
+            else:
+                axes_flat = [axes]
+
+            # Turn off any unused axes
+            for ax in axes_flat[n_masters:]:
+                ax.axis("off")
+
+            for i, (cfg_idx, master) in enumerate(sorted(self.master_biases.items())):
+                ax = axes_flat[i]
+                # Extract data from CCDData object for plotting
+                master_data = master.data if hasattr(master, 'data') else master
+                im = ax.imshow(master_data, origin="lower", cmap="gray")
+                ax.set_title(f"Master bias {cfg_idx}")
+                ax.axis("off")
+                fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+            plt.tight_layout()
+            plt.show()
+
+        # save master biases to a subdirectory inside the raw data directory
+        master_dir = os.path.join(self.raw_data_path, "master_biases")
+        os.makedirs(master_dir, exist_ok=True)
+
+        for cfg_idx, master in sorted(self.master_biases.items()):
+            try:
+                # extract data and header (support CCDData or raw numpy arrays)
+                data = master.data if hasattr(master, "data") else np.asarray(master)
+                
+                # Handle header properly - convert OrderedDict to fits.Header if needed
+                if hasattr(master, "header") and master.header is not None:
+                    if isinstance(master.header, fits.Header):
+                        # Already a FITS header, just copy it
+                        header = master.header.copy()
+                    else:
+                        # Convert OrderedDict or other dict-like object to FITS Header
+                        header = fits.Header()
+                        for key, value in master.header.items():
+                            try:
+                                header[key] = value
+                            except Exception as header_error:
+                                # Skip problematic header entries
+                                self.logger.warning(f"Could not add header key {key}={value}: {header_error}")
+                else:
+                    # Create new header if none exists
+                    header = fits.Header()
+
+                # record some metadata
+                header["IMTYPE"] = "MASTER_BIAS"
+                header["BCFGIDX"] = cfg_idx
+                if hasattr(master, "unit") and master.unit is not None:
+                    header["BUNIT"] = str(master.unit)
+
+                # Add bias configuration info to header
+                if cfg_idx in self.bias_configurations:
+                    cfg = self.bias_configurations[cfg_idx]
+                    header["WINDOW"] = str(cfg.get("window", "UNKNOWN"))
+                    header["BINX"] = str(cfg.get("bin_x", "UNKNOWN"))
+                    header["BINY"] = str(cfg.get("bin_y", "UNKNOWN"))
+
+                hdu = fits.PrimaryHDU(data=data, header=header)
+                outname = f"master_bias_{cfg_idx:03d}.fits"
+                outpath = os.path.join(master_dir, outname)
+                hdu.writeto(outpath, overwrite=True)
+
+                self.logger.info(f"Saved master bias {cfg_idx} to {outpath}")
+            except Exception as e:
+                self.logger.error(f"Failed to save master bias {cfg_idx}: {e}")
+                # Add more detailed error information
+                self.logger.error(f"Master type: {type(master)}, has header: {hasattr(master, 'header')}")
+                if hasattr(master, 'header'):
+                    self.logger.error(f"Header type: {type(master.header)}")
+
+            
 
     def run_pipeline(self):
 
         self.sort_data()
 
         self.create_setup_table()
+
+        self.determine_bias_configurations()
+
+
+        self.make_master_bias()

@@ -51,6 +51,7 @@ class Instrument:
         dark_keyword: Optional[list[str]] = None,
         flat_keyword: Optional[list[str]] = None,
         science_keyword: Optional[list[str]] = None,
+        data_hdu_extension: Optional[int] = None
     ):
         self.detector = detector if detector is not None else Detector()
         self.telescope = telescope if telescope is not None else Telescope()
@@ -69,6 +70,9 @@ class Instrument:
         self.dark_keyword = dark_keyword if dark_keyword is not None else []
         self.flat_keyword = flat_keyword if flat_keyword is not None else []
         self.science_keyword = science_keyword if science_keyword is not None else []
+
+
+        self.data_hdu_extension = data_hdu_extension
 
     def match_image_type(self, keyword_imtype: Optional[str], keyword_obsmode: Optional[str]) -> Optional[ImageType]:
         if not keyword_imtype and not keyword_obsmode:
