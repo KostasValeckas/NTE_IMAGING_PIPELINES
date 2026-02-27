@@ -443,6 +443,180 @@ class ReductionPipeline:
         self.logger.info(f"Found {len(unique_map)} unique flat configurations")
         self.logger.info(f"Flat configurations: {self.flat_configurations}")
 
+
+    def make_master_flats(self):
+
+        raw_frame_dict = {}
+        matched_files = 0
+        total_flat_files = len(self.flat_files) if getattr(self, "flat_files", None) else 0
+
+        for file in self.flat_files:
+
+            hdul = self.open_fits_file(file)
+
+            if hdul is None:
+                self.logger.warning(f"Could not open {file}, skipping")
+                continue
+
+            window_header_extension = self.instrument.detector.window_keyword[1]
+            bin_x_header_extension = self.instrument.detector.bin_x_keyword[1]
+            bin_y_header_extension = self.instrument.detector.bin_y_keyword[1]
+            filter_header_extension = self.instrument.filter_keyword[1]
+
+            window_keyword = self.instrument.detector.window_keyword[0]
+            bin_x_keyword = self.instrument.detector.bin_x_keyword[0]
+            bin_y_keyword = self.instrument.detector.bin_y_keyword[0]
+            filter_keyword_spec = self.instrument.filter_keyword[0]
+
+            window = hdul[window_header_extension].header.get(window_keyword, "UNKNOWN")
+            bin_x = hdul[bin_x_header_extension].header.get(bin_x_keyword, "UNKNOWN")
+            bin_y = hdul[bin_y_header_extension].header.get(bin_y_keyword, "UNKNOWN")
+
+            # Build filters list robustly whether filter_keyword_spec is a single key or list/tuple
+            filters = []
+            if isinstance(filter_keyword_spec, (list, tuple)):
+                for key in filter_keyword_spec:
+                    val = hdul[filter_header_extension].header.get(key)
+                    filters.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
+            else:
+                val = hdul[filter_header_extension].header.get(filter_keyword_spec)
+                filters.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
+
+            key = (window, bin_x, bin_y, tuple(filters))
+
+            if not getattr(self, "flat_configurations", None):
+                self.logger.warning(f"No flat configurations available; skipping {file}")
+                continue
+
+            # Match against flat_configurations (not bias_configurations) and normalize filter types
+            matched_idx = next(
+                (
+                    idx
+                    for idx, cfg in self.flat_configurations.items()
+                    if (
+                        cfg.get("window"),
+                        cfg.get("bin_x"),
+                        cfg.get("bin_y"),
+                        tuple(cfg.get("filter")) if isinstance(cfg.get("filter"), (list, tuple)) else (cfg.get("filter"),),
+                    )
+                    == key
+                ),
+                None,
+            )
+
+            if matched_idx is None:
+                self.logger.warning(f"No matching flat configuration for {key} in file {file}, skipping")
+                continue
+
+            data = self.get_fits_data(file)
+            if data is None:
+                self.logger.warning(f"Could not read data from {file}, skipping")
+                continue
+
+            # store CCDData object under the integer configuration key; append if multiple frames
+            raw_frame_dict.setdefault(matched_idx, []).append(data)
+            matched_files += 1
+            self.logger.info(f"Appended CCDData for {file} to raw_frame_dict[{matched_idx}] (total {len(raw_frame_dict[matched_idx])} frames)")
+
+        # report how many flat files matched
+        self.logger.info(f"Matched {matched_files} flat files out of {total_flat_files} flat files")
+
+        self.master_flats = {}
+
+
+        # first, median combine flats for each configuration
+        for cfg_idx, frames in raw_frame_dict.items():
+            if not frames:
+                self.logger.warning(f"No frames found for configuration {cfg_idx}, skipping")
+                continue
+
+            try:
+                # Use CCDData objects directly with Combiner
+                comb = Combiner(frames)
+                master = comb.median_combine()
+                self.logger.info(f"Combined {len(frames)} CCDData frames using ccdproc.Combiner for flat {cfg_idx}")
+            except Exception as e:
+                # Fallback to numpy median if Combiner fails
+                self.logger.warning(f"ccdproc.Combiner failed for config {cfg_idx}: {e}. Falling back to numpy.median")
+                try:
+                    # Extract data arrays from CCDData objects for numpy fallback
+                    data_arrays = [frame.data for frame in frames]
+                    stacked = np.stack(data_arrays, axis=0)
+                    median_data = np.median(stacked, axis=0)
+                    # Create a new CCDData object with the combined data
+                    master = CCDData(median_data, unit=frames[0].unit, header=frames[0].header)
+                except Exception as fallback_error:
+                    self.logger.error(f"Both ccdproc and numpy fallback failed for config {cfg_idx}: {fallback_error}")
+                    continue
+
+            self.master_flats[cfg_idx] = master
+            self.logger.info(f"Created master flat for config {cfg_idx} from {len(frames)} frames")
+
+            # Plot each master flat
+            master_data = master.data if hasattr(master, 'data') else master
+            master_data_norm = master_data / np.median(master_data) if np.median(master_data) != 0 else master_data
+            # set any normalized pixels outside [0.5, 1.5] to 1.0
+            mask = (master_data_norm < 0.5) | (master_data_norm > 1.5)
+            if np.any(mask):
+                n_changed = int(np.count_nonzero(mask))
+                self.logger.info(f"Master flat {cfg_idx}: {n_changed} pixels outside [0.5,1.5], setting to 1.0")
+                master_data_norm = master_data_norm.copy()
+                master_data_norm[mask] = 1.0
+            plt.figure(figsize=(8, 6))
+            plt.imshow(master_data_norm, origin="lower", cmap="gray")
+            plt.title(f"Master flat {cfg_idx}")
+            plt.colorbar()
+            plt.show()
+
+            try:
+                master_dir = os.path.join(self.raw_data_path, "master_flats")
+                os.makedirs(master_dir, exist_ok=True)
+
+                # ensure a floating point dtype for saving
+                data_to_save = master_data_norm.astype(np.float32)
+
+                # Build header from master if present, otherwise create new one
+                if hasattr(master, "header") and master.header is not None:
+                    if isinstance(master.header, fits.Header):
+                        header = master.header.copy()
+                    else:
+                        header = fits.Header()
+                        try:
+                            for k, v in master.header.items():
+                                header[k] = v
+                        except Exception:
+                            # skip problematic header entries
+                            pass
+                else:
+                    header = fits.Header()
+
+                # Standard metadata
+                header["IMTYPE"] = "MASTER_FLAT"
+                header["FCFGIDX"] = cfg_idx
+                header["NFRAMES"] = len(frames)
+                if hasattr(master, "unit") and master.unit is not None:
+                    header["BUNIT"] = str(master.unit)
+
+                # Add flat configuration details if available
+                if cfg_idx in self.flat_configurations:
+                    cfg = self.flat_configurations[cfg_idx]
+                    header["WINDOW"] = str(cfg.get("window", "UNKNOWN"))
+                    header["BINX"] = str(cfg.get("bin_x", "UNKNOWN"))
+                    header["BINY"] = str(cfg.get("bin_y", "UNKNOWN"))
+                    filters = cfg.get("filter")
+                    if isinstance(filters, (list, tuple)):
+                        header["FILTER"] = ",".join(str(f) for f in filters)
+                    else:
+                        header["FILTER"] = str(filters)
+
+                hdu = fits.PrimaryHDU(data=data_to_save, header=header)
+                outname = f"master_flat_{cfg_idx:03d}.fits"
+                outpath = os.path.join(master_dir, outname)
+                hdu.writeto(outpath, overwrite=True)
+                self.logger.info(f"Saved master flat {cfg_idx} to {outpath}")
+            except Exception as e:
+                self.logger.error(f"Failed to save master flat {cfg_idx}: {e}")
+
     def run_pipeline(self):
 
         self.sort_data()
@@ -455,3 +629,5 @@ class ReductionPipeline:
 
 
         self.determine_flat_configurations()
+
+        self.make_master_flats()
