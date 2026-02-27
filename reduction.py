@@ -85,11 +85,14 @@ class ReductionPipeline:
         )
 
     def create_setup_table(self):
-        
-        pass
+
+        if not getattr(self, "science_files", None):
+            self.logger.info("No science files available to build setup table.")
+            self.setup_table = {}
+            return self.setup_table
 
         setup_table = {}
-
+        key_map = {}
         setup_counter = 0
 
         for file in self.science_files:
@@ -113,6 +116,7 @@ class ReductionPipeline:
             window = hdul[window_header_extension].header.get(window_keyword, "UNKNOWN")
             bin_x = hdul[bin_x_header_extension].header.get(bin_x_keyword, "UNKNOWN")
             bin_y = hdul[bin_y_header_extension].header.get(bin_y_keyword, "UNKNOWN")
+
             header = hdul[filter_header_extension].header
             filter_names = []
             if isinstance(filter_keyword, (list, tuple)):
@@ -120,29 +124,35 @@ class ReductionPipeline:
                     val = header.get(key)
                     filter_names.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
             else:
-                val = header.get(filter_keyword, "UNKNOWN")
+                val = header.get(filter_keyword)
                 filter_names.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
+
             filter_name = filter_names
+            key = (window, bin_x, bin_y, tuple(filter_name))
 
-            print(f"File: {file}, Window: {window}, Bin X: {bin_x}, Bin Y: {bin_y}, Filter: {filter_name}")
-
-            test_dict = {
-                "window": window,
-                "bin_x": bin_x,
-                "bin_y": bin_y,
-                "filter": filter_name,
-            }
-
-            if test_dict not in setup_table.values():
-                setup_table[setup_counter] = test_dict
+            # If we've already seen this configuration, append the file to its list
+            if key in key_map:
+                idx = key_map[key]
+                setup_table[idx]["files"].append(file)
+            else:
+                idx = setup_counter
+                key_map[key] = idx
+                setup_table[idx] = {
+                    "window": window,
+                    "bin_x": bin_x,
+                    "bin_y": bin_y,
+                    "filter": filter_name,
+                    "files": [file],
+                }
                 setup_counter += 1
 
-        self.logger.info(f"Created setup table with {len(setup_table)} unique setups")
-        self.logger.info(f"Setup table contents: {setup_table}")   
+            self.logger.debug(f"File: {file}, Window: {window}, Bin X: {bin_x}, Bin Y: {bin_y}, Filter: {filter_name}")
 
-            
+        self.logger.info(f"Created setup table with {len(setup_table)} unique setups")
+        self.logger.info(f"Setup table contents: {setup_table}")
 
         self.setup_table = setup_table
+        return self.setup_table
 
 
     def open_fits_file(self, filepath):
@@ -617,6 +627,143 @@ class ReductionPipeline:
             except Exception as e:
                 self.logger.error(f"Failed to save master flat {cfg_idx}: {e}")
 
+
+
+        
+    def reduce(self):
+        if not getattr(self, "setup_table", None):
+            self.logger.info("No setup table available; nothing to reduce.")
+            return
+        # Build quick lookup maps from configurations to indices
+        bias_map = {}
+        if getattr(self, "bias_configurations", None):
+            for idx, cfg in self.bias_configurations.items():
+                bias_map[(cfg.get("window"), cfg.get("bin_x"), cfg.get("bin_y"))] = idx
+        flat_map = {}
+        if getattr(self, "flat_configurations", None):
+            for idx, cfg in self.flat_configurations.items():
+                filters = cfg.get("filter")
+                if isinstance(filters, (list, tuple)):
+                    filt_key = tuple(filters)
+                else:
+                    filt_key = (filters,)
+                flat_map[(cfg.get("window"), cfg.get("bin_x"), cfg.get("bin_y"), filt_key)] = idx
+        def load_master_bias(idx):
+            if idx is None:
+                return None
+            # check in-memory
+            if getattr(self, "master_biases", None) and idx in self.master_biases:
+                return self.master_biases[idx]
+            # try loading from disk
+            path = os.path.join(self.raw_data_path, "master_biases", f"master_bias_{idx:03d}.fits")
+            if os.path.exists(path):
+                self.logger.info(f"Loading master bias from {path}")
+                return self.get_fits_data(path)
+            self.logger.warning(f"No master bias found for index {idx}")
+            return None
+        def load_master_flat(idx):
+            if idx is None:
+                return None
+            if getattr(self, "master_flats", None) and idx in self.master_flats:
+                return self.master_flats[idx]
+            path = os.path.join(self.raw_data_path, "master_flats", f"master_flat_{idx:03d}.fits")
+            if os.path.exists(path):
+                self.logger.info(f"Loading master flat from {path}")
+                return self.get_fits_data(path)
+            self.logger.warning(f"No master flat found for index {idx}")
+            return None
+        reduced_dir = os.path.join(self.raw_data_path, "reduced")
+        os.makedirs(reduced_dir, exist_ok=True)
+        for setup_idx, setup in sorted(self.setup_table.items()):
+            window = setup.get("window")
+            bin_x = setup.get("bin_x")
+            bin_y = setup.get("bin_y")
+            filters = setup.get("filter", [])
+            filt_key = tuple(filters) if isinstance(filters, (list, tuple)) else (filters,)
+            bias_idx = bias_map.get((window, bin_x, bin_y))
+            flat_idx = flat_map.get((window, bin_x, bin_y, filt_key))
+            master_bias = load_master_bias(bias_idx)
+            master_flat = load_master_flat(flat_idx)
+            if master_bias is None:
+                self.logger.info(f"Proceeding without bias subtraction for setup {setup_idx}")
+            if master_flat is None:
+                self.logger.info(f"Proceeding without flat division for setup {setup_idx}")
+            for sci_file in setup.get("files", []):
+                sci_ccd = self.get_fits_data(sci_file)
+                if sci_ccd is None:
+                    self.logger.warning(f"Could not read science file {sci_file}, skipping")
+                    continue
+                # keep a copy for "before" plotting
+                before_data = np.array(sci_ccd.data, copy=True)
+                # operate in float to avoid integer truncation
+                try:
+                    data = sci_ccd.data.astype(np.float32)
+                except Exception as e:
+                    self.logger.error(f"Could not convert science data to float for {sci_file}: {e}")
+                    continue
+                # Bias subtraction
+                if master_bias is not None:
+                    bias_data = master_bias.data if hasattr(master_bias, "data") else np.asarray(master_bias)
+                    if bias_data.shape != data.shape:
+                        self.logger.warning(f"Bias shape {bias_data.shape} != science shape {data.shape} for {sci_file}; skipping bias subtraction")
+                    else:
+                        data = data - bias_data
+                        self.logger.info(f"Bias subtracted for {sci_file} using bias idx {bias_idx}")
+                # Flat division
+                if master_flat is not None:
+                    flat_data = master_flat.data if hasattr(master_flat, "data") else np.asarray(master_flat)
+                    if flat_data.shape != data.shape:
+                        self.logger.warning(f"Flat shape {flat_data.shape} != science shape {data.shape} for {sci_file}; skipping flat division")
+                    else:
+                        # avoid division by zero or tiny numbers
+                        flat_safe = flat_data.astype(np.float32).copy()
+                        tiny_mask = np.isclose(flat_safe, 0.0)
+                        if np.any(tiny_mask):
+                            n = int(np.count_nonzero(tiny_mask))
+                            self.logger.warning(f"{n} flat pixels near zero for flat idx {flat_idx}; setting them to 1.0 to avoid division by zero")
+                            flat_safe[tiny_mask] = 1.0
+                        data = data / flat_safe
+                        self.logger.info(f"Flat divided for {sci_file} using flat idx {flat_idx}")
+                # Prepare header for output
+                if hasattr(sci_ccd, "header") and sci_ccd.header is not None:
+                    out_header = sci_ccd.header.copy()
+                else:
+                    out_header = fits.Header()
+                out_header["IMTYPE"] = "REDUCED"
+                out_header["PROC"] = "BIAS_SUB" if (master_bias is not None and master_flat is None) else ("BIAS_SUB+FLAT_DIV" if (master_bias is not None and master_flat is not None) else ("FLAT_DIV" if (master_flat is not None) else "NONE"))
+                if bias_idx is not None:
+                    out_header["BCFGIDX"] = bias_idx
+                if flat_idx is not None:
+                    out_header["FCFGIDX"] = flat_idx
+                # Save reduced file
+                base = os.path.basename(sci_file)
+                name_root, ext = os.path.splitext(base)
+                outname = f"{name_root}_reduced{ext}"
+                outpath = os.path.join(reduced_dir, outname)
+                try:
+                    hdu = fits.PrimaryHDU(data.astype(np.float32), header=out_header)
+                    hdu.writeto(outpath, overwrite=True)
+                    self.logger.info(f"Saved reduced file to {outpath}")
+                except Exception as e:
+                    self.logger.error(f"Failed to save reduced file {outpath}: {e}")
+                # Show before and after
+                try:
+                    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+                    im1 = axes[0].imshow(before_data/np.median(before_data), origin="lower", cmap="gray", vmin=0.5, vmax=1.5)
+                    axes[0].set_title(f"Before: {base}")
+                    axes[0].axis("off")
+                    fig.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
+                    im2 = axes[1].imshow(data/np.median(data), origin="lower", cmap="gray", vmin=0.5, vmax=1.5)
+                    axes[1].set_title(f"After: {name_root}_reduced")
+                    axes[1].axis("off")
+                    fig.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04)
+                    plt.tight_layout()
+                    plt.show()
+                except Exception as e:
+                    self.logger.warning(f"Failed to plot before/after for {sci_file}: {e}")
+
+        
+
     def run_pipeline(self):
 
         self.sort_data()
@@ -628,6 +775,8 @@ class ReductionPipeline:
         #self.make_master_bias()
 
 
-        self.determine_flat_configurations()
+        #self.determine_flat_configurations()
 
-        self.make_master_flats()
+        #self.make_master_flats()
+
+        self.reduce()
