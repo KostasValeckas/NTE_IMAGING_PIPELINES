@@ -27,6 +27,7 @@ class ReductionPipeline:
 
         self.setup_table = {}
         self.bias_configurations = {}
+        self.flat_configurations = {}
 
     def sort_data(self):
 
@@ -412,7 +413,35 @@ class ReductionPipeline:
                 if hasattr(master, 'header'):
                     self.logger.error(f"Header type: {type(master.header)}")
 
-            
+
+    def determine_flat_configurations(self):
+
+        if not getattr(self, "setup_table", None):
+            self.logger.info("No setup table available to determine flat configurations.")
+            self.flat_configurations = {}
+            return self.flat_configurations
+
+        unique_map = {}
+        seen = set()
+        idx = 0
+        for entry in self.setup_table.values():
+            w = entry.get("window")
+            bx = entry.get("bin_x")
+            by = entry.get("bin_y")
+            filters = entry.get("filter")
+            # Convert list to tuple to make it hashable for use in set
+            filters_tuple = tuple(filters) if isinstance(filters, (list, tuple)) else (filters,)
+            key = (w, bx, by, filters_tuple)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_map[idx] = {"window": w, "bin_x": bx, "bin_y": by, "filter": filters}
+            idx += 1
+
+        self.flat_configurations = unique_map
+
+        self.logger.info(f"Found {len(unique_map)} unique flat configurations")
+        self.logger.info(f"Flat configurations: {self.flat_configurations}")
 
     def run_pipeline(self):
 
@@ -420,7 +449,9 @@ class ReductionPipeline:
 
         self.create_setup_table()
 
-        self.determine_bias_configurations()
+        #self.determine_bias_configurations()
+
+        #self.make_master_bias()
 
 
-        self.make_master_bias()
+        self.determine_flat_configurations()
