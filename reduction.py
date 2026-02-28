@@ -45,23 +45,18 @@ class ReductionPipeline:
 
             filepath = os.path.join(self.raw_data_path, filename)
 
-            header_extension_imtype = self.instrument.imagetype_keyword[1]
-            header_extension_obsmode = self.instrument.obsmode_keyword[1]
-
-            # Get header to determine image type
-            header_imtype = self.get_fits_header(filepath, header_extension_imtype)
-            header_obsmode = self.get_fits_header(filepath, header_extension_obsmode)
-
-            if header_imtype is None or header_obsmode  is None:
-                self.logger.warning(f"Could not read header from {filename}, skipping")
+            # Open file and get HDUList (match_image_type now expects the whole HDU/HDUList)
+            hdul = self.open_fits_file(filepath)
+            if hdul is None:
+                self.logger.warning(f"Could not open {filename} to read headers, skipping")
                 continue
 
-            imagetype_keyword = self.instrument.imagetype_keyword[0]
-            obsmode_keyword = self.instrument.obsmode_keyword[0]
-
-            image_type = self.instrument.match_image_type(
-                header_imtype.get(imagetype_keyword, ""), header_obsmode.get(obsmode_keyword, "")
-            )
+            try:
+                image_type = self.instrument.match_image_type(hdul)
+                print(f"File: {filename}, matched image type: {image_type}")
+            except Exception as e:
+                self.logger.warning(f"match_image_type failed for {filename}: {e}")
+                continue
 
             if image_type == ImageType.BIAS:
                 bias_files.append(filepath)
@@ -770,13 +765,13 @@ class ReductionPipeline:
 
         self.create_setup_table()
 
-        #self.determine_bias_configurations()
+        self.determine_bias_configurations()
 
-        #self.make_master_bias()
+        self.make_master_bias()
 
 
-        #self.determine_flat_configurations()
+        self.determine_flat_configurations()
 
-        #self.make_master_flats()
+        self.make_master_flats()
 
         self.reduce()

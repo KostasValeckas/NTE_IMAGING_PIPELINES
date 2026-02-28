@@ -74,30 +74,8 @@ class Instrument:
 
         self.data_hdu_extension = data_hdu_extension
 
-    def match_image_type(self, keyword_imtype: Optional[str], keyword_obsmode: Optional[str]) -> Optional[ImageType]:
-        if not keyword_imtype and not keyword_obsmode:
-            return None
+    def match_image_type(self, hdul) -> Optional[ImageType]:
         
-        #TODO: REFACTOR
-        k = str(keyword_imtype).strip().upper() if keyword_imtype else None
-        o = str(keyword_obsmode).strip().upper() if keyword_obsmode else None
-
-        print(f"Matching keyword: {k}, obsmode: {o}")
-
-        def _matches(lst: list[str]) -> bool:
-            print(f"Checking against list: {lst}")
-            return any(k == item for item in lst)
-
-        if _matches(self.bias_keyword):
-            print("Matched bias keyword")
-            return ImageType.BIAS
-        if _matches(self.dark_keyword):
-            print("Matched dark keyword")
-            return ImageType.DARK
-        if _matches(self.flat_keyword) and o == self.imaging_obsmode_keyword[0]:
-            print("Matched flat keyword")
-            return ImageType.FLAT
-        if _matches(self.science_keyword) and o == self.imaging_obsmode_keyword[0]:
-            print("Matched science keyword")
-            return ImageType.SCIENCE
+        # Base implementation: intended to be overridden by subclasses.
+        # Return None to indicate "no determination" at this level.
         return None
