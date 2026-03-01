@@ -30,9 +30,12 @@ class ReductionPipeline:
         self.bias_configurations = {}
         self.science_to_bias_map = {}
         self.flat_configurations = {}
+        self.science_to_flat_map = {}
 
         self.master_biases = {}
         self.bad_pixel_masks = {}
+
+        self.master_flats = {}
 
     def sort_data(self):
 
@@ -414,7 +417,7 @@ class ReductionPipeline:
                     lower_small = -tol_small
                     upper_small = tol_small
                 else:
-                    delta_small = 0.1 * abs(median_val)
+                    delta_small = 0.2 * abs(median_val)
                     lower_small = median_val - delta_small
                     upper_small = median_val + delta_small
 
@@ -505,11 +508,6 @@ class ReductionPipeline:
                 plt.colorbar()
                 plt.show()
 
-                plt.figure(figsize=(6, 5))
-                plt.imshow(data, origin="lower", cmap="gray")
-                plt.title(f"Combined master bias for config: {configuration}")
-                plt.colorbar()
-                plt.show()
 
                 # store results for this configuration
                 master_bias = CCDData(data, unit=u.adu, header=combined_median.header)
@@ -533,8 +531,10 @@ class ReductionPipeline:
         if not getattr(self, "setup_table", None):
             self.logger.info("No setup table available to determine flat configurations.")
             self.flat_configurations = {}
+            self.science_to_flat_map = {}
             return self.flat_configurations
 
+        # Start by creating unique flat configurations from the setup table (include filter)
         unique_map = {}
         seen = set()
         idx = 0
@@ -542,195 +542,311 @@ class ReductionPipeline:
             w = entry.get("window")
             bx = entry.get("bin_x")
             by = entry.get("bin_y")
-            filters = entry.get("filter")
-            # Convert list to tuple to make it hashable for use in set
-            filters_tuple = tuple(filters) if isinstance(filters, (list, tuple)) else (filters,)
+            filters = entry.get("filter") or []
+            # normalize filters into a tuple for hashing
+            if isinstance(filters, (list, tuple)):
+                filters_tuple = tuple(filters)
+            else:
+                filters_tuple = (filters,)
             key = (w, bx, by, filters_tuple)
             if key in seen:
                 continue
             seen.add(key)
-            unique_map[idx] = {"window": w, "bin_x": bx, "bin_y": by, "filter": filters}
+            # include files list to be populated from available flat files
+            unique_map[idx] = {"window": w, "bin_x": bx, "bin_y": by, "filter": list(filters_tuple), "files": []}
             idx += 1
 
         self.flat_configurations = unique_map
 
-        self.logger.info(f"Found {len(unique_map)} unique flat configurations")
+        # build lookup by (window, bin_x, bin_y, tuple(filter_names)) -> flat_idx
+        flat_lookup = {
+            (cfg["window"], cfg["bin_x"], cfg["bin_y"], tuple(cfg["filter"])): fidx
+            for fidx, cfg in self.flat_configurations.items()
+        }
+
+        # Now append actual flat files to the proper configuration (creating new configs if needed)
+        flat_files = getattr(self, "flat_files", []) or []
+        next_idx = max(self.flat_configurations.keys()) + 1 if self.flat_configurations else 0
+
+        for ff in flat_files:
+            hdul = self.open_fits_file(ff)
+            if hdul is None:
+                self.logger.warning(f"Could not open flat file {ff}, skipping")
+                continue
+
+            try:
+                window_header_extension = self.instrument.detector.window_keyword[1]
+                bin_x_header_extension = self.instrument.detector.bin_x_keyword[1]
+                bin_y_header_extension = self.instrument.detector.bin_y_keyword[1]
+                filter_header_extension = self.instrument.filter_keyword[1]
+
+                window_keyword = self.instrument.detector.window_keyword[0]
+                bin_x_keyword = self.instrument.detector.bin_x_keyword[0]
+                bin_y_keyword = self.instrument.detector.bin_y_keyword[0]
+                filter_keyword_spec = self.instrument.filter_keyword[0]
+
+                w = hdul[window_header_extension].header.get(window_keyword, "UNKNOWN")
+                bx = hdul[bin_x_header_extension].header.get(bin_x_keyword, "UNKNOWN")
+                by = hdul[bin_y_header_extension].header.get(bin_y_keyword, "UNKNOWN")
+            except Exception as e:
+                self.logger.warning(f"Failed to read header keywords from flat file {ff}: {e}")
+                w, bx, by = "UNKNOWN", "UNKNOWN", "UNKNOWN"
+                filter_keyword_spec = self.instrument.filter_keyword[0]
+                filter_header_extension = self.instrument.filter_keyword[1]
+
+            # Read filter(s) robustly (single key or list/tuple of keys)
+            filter_names = []
+            try:
+                if isinstance(filter_keyword_spec, (list, tuple)):
+                    for key in filter_keyword_spec:
+                        val = hdul[filter_header_extension].header.get(key)
+                        filter_names.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
+                else:
+                    val = hdul[filter_header_extension].header.get(filter_keyword_spec)
+                    filter_names.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
+            except Exception as e:
+                self.logger.warning(f"Failed to read filter keywords from flat file {ff}: {e}")
+                filter_names = ["UNKNOWN"]
+
+            key = (w, bx, by, tuple(filter_names))
+            matched_idx = flat_lookup.get(key)
+            if matched_idx is None:
+                # create a new flat configuration to hold this flat file
+                matched_idx = next_idx
+                self.flat_configurations[matched_idx] = {
+                    "window": w,
+                    "bin_x": bx,
+                    "bin_y": by,
+                    "filter": filter_names,
+                    "files": [ff],
+                }
+                flat_lookup[key] = matched_idx
+                next_idx += 1
+                self.logger.info(f"Created new flat configuration {matched_idx} for key {key} and added file {ff}")
+            else:
+                files_list = self.flat_configurations[matched_idx].setdefault("files", [])
+                if ff not in files_list:
+                    files_list.append(ff)
+                    self.logger.info(f"Appended flat file {ff} to flat configuration {matched_idx}")
+
+        # map each science setup (setup_table key) to a flat configuration index (or None)
+        science_to_flat = {}
+        for setup_idx, setup in self.setup_table.items():
+            w = setup.get("window")
+            bx = setup.get("bin_x")
+            by = setup.get("bin_y")
+            filters = setup.get("filter") or []
+            if isinstance(filters, (list, tuple)):
+                filters_tuple = tuple(filters)
+            else:
+                filters_tuple = (filters,)
+            key = (w, bx, by, filters_tuple)
+            matched = flat_lookup.get(key)
+            science_to_flat[setup_idx] = matched
+
+        self.science_to_flat_map = science_to_flat
+
+        self.logger.info(f"Found {len(self.flat_configurations)} unique flat configurations")
         self.logger.info(f"Flat configurations: {self.flat_configurations}")
+        self.logger.info(f"Science -> Flat mapping: {self.science_to_flat_map}")
+
+        # write flat configurations to disk
+        try:
+            outpath = os.path.join(self.raw_data_path, "flat_configurations.json")
+            serializable = {}
+            for k, v in self.flat_configurations.items():
+                serializable[str(k)] = {
+                    "window": str(v.get("window", "UNKNOWN")),
+                    "bin_x": str(v.get("bin_x", "UNKNOWN")),
+                    "bin_y": str(v.get("bin_y", "UNKNOWN")),
+                    "filter": [str(f) for f in (v.get("filter") or [])],
+                    "files": [str(f) for f in (v.get("files") or [])],
+                }
+            with open(outpath, "w", encoding="utf-8") as fh:
+                json.dump(serializable, fh, indent=2, ensure_ascii=False)
+            self.logger.info(f"Wrote flat configurations to {outpath}")
+        except Exception as e:
+            self.logger.error(f"Failed to write flat configurations to JSON: {e}")
+
+        # write science -> flat mapping to disk
+        try:
+            map_outpath = os.path.join(self.raw_data_path, "science_to_flat_map.json")
+            serializable_map = {str(k): (v if v is not None else None) for k, v in self.science_to_flat_map.items()}
+            with open(map_outpath, "w", encoding="utf-8") as fh:
+                json.dump(serializable_map, fh, indent=2, ensure_ascii=False)
+            self.logger.info(f"Wrote science->flat mapping to {map_outpath}")
+        except Exception as e:
+            self.logger.error(f"Failed to write science->flat mapping to JSON: {e}")
+
+        return self.flat_configurations
 
 
     def make_master_flats(self):
 
-        raw_frame_dict = {}
-        matched_files = 0
-        total_flat_files = len(self.flat_files) if getattr(self, "flat_files", None) else 0
-
-        for file in self.flat_files:
-
-            hdul = self.open_fits_file(file)
-
-            if hdul is None:
-                self.logger.warning(f"Could not open {file}, skipping")
-                continue
-
-            window_header_extension = self.instrument.detector.window_keyword[1]
-            bin_x_header_extension = self.instrument.detector.bin_x_keyword[1]
-            bin_y_header_extension = self.instrument.detector.bin_y_keyword[1]
-            filter_header_extension = self.instrument.filter_keyword[1]
-
-            window_keyword = self.instrument.detector.window_keyword[0]
-            bin_x_keyword = self.instrument.detector.bin_x_keyword[0]
-            bin_y_keyword = self.instrument.detector.bin_y_keyword[0]
-            filter_keyword_spec = self.instrument.filter_keyword[0]
-
-            window = hdul[window_header_extension].header.get(window_keyword, "UNKNOWN")
-            bin_x = hdul[bin_x_header_extension].header.get(bin_x_keyword, "UNKNOWN")
-            bin_y = hdul[bin_y_header_extension].header.get(bin_y_keyword, "UNKNOWN")
-
-            # Build filters list robustly whether filter_keyword_spec is a single key or list/tuple
-            filters = []
-            if isinstance(filter_keyword_spec, (list, tuple)):
-                for key in filter_keyword_spec:
-                    val = hdul[filter_header_extension].header.get(key)
-                    filters.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
-            else:
-                val = hdul[filter_header_extension].header.get(filter_keyword_spec)
-                filters.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
-
-            key = (window, bin_x, bin_y, tuple(filters))
-
-            if not getattr(self, "flat_configurations", None):
-                self.logger.warning(f"No flat configurations available; skipping {file}")
-                continue
-
-            # Match against flat_configurations (not bias_configurations) and normalize filter types
-            matched_idx = next(
-                (
-                    idx
-                    for idx, cfg in self.flat_configurations.items()
-                    if (
-                        cfg.get("window"),
-                        cfg.get("bin_x"),
-                        cfg.get("bin_y"),
-                        tuple(cfg.get("filter")) if isinstance(cfg.get("filter"), (list, tuple)) else (cfg.get("filter"),),
-                    )
-                    == key
-                ),
-                None,
-            )
-
-            if matched_idx is None:
-                self.logger.warning(f"No matching flat configuration for {key} in file {file}, skipping")
-                continue
-
-            data = self.get_fits_data(file)
-            if data is None:
-                self.logger.warning(f"Could not read data from {file}, skipping")
-                continue
-
-            # store CCDData object under the integer configuration key; append if multiple frames
-            raw_frame_dict.setdefault(matched_idx, []).append(data)
-            matched_files += 1
-            self.logger.info(f"Appended CCDData for {file} to raw_frame_dict[{matched_idx}] (total {len(raw_frame_dict[matched_idx])} frames)")
-
-        # report how many flat files matched
-        self.logger.info(f"Matched {matched_files} flat files out of {total_flat_files} flat files")
-
         self.master_flats = {}
 
 
-        # first, median combine flats for each configuration
-        for cfg_idx, frames in raw_frame_dict.items():
-            if not frames:
-                self.logger.warning(f"No frames found for configuration {cfg_idx}, skipping")
-                continue
+        for key, configuration in self.flat_configurations.items():
+            self.logger.info(f"Processing flat configuration: {configuration}")
 
-            try:
-                # Use CCDData objects directly with Combiner
-                comb = Combiner(frames)
-                master = comb.median_combine()
-                self.logger.info(f"Combined {len(frames)} CCDData frames using ccdproc.Combiner for flat {cfg_idx}")
-            except Exception as e:
-                # Fallback to numpy median if Combiner fails
-                self.logger.warning(f"ccdproc.Combiner failed for config {cfg_idx}: {e}. Falling back to numpy.median")
-                try:
-                    # Extract data arrays from CCDData objects for numpy fallback
-                    data_arrays = [frame.data for frame in frames]
-                    stacked = np.stack(data_arrays, axis=0)
-                    median_data = np.median(stacked, axis=0)
-                    # Create a new CCDData object with the combined data
-                    master = CCDData(median_data, unit=frames[0].unit, header=frames[0].header)
-                except Exception as fallback_error:
-                    self.logger.error(f"Both ccdproc and numpy fallback failed for config {cfg_idx}: {fallback_error}")
+            master_flat = None
+
+            for flat_file in configuration.get("files", []):
+                data = self.get_fits_data(flat_file)
+                if data is None:
+                    self.logger.warning(f"Could not read flat file {flat_file}, skipping")
                     continue
 
-            self.master_flats[cfg_idx] = master
-            self.logger.info(f"Created master flat for config {cfg_idx} from {len(frames)} frames")
-
-            # Plot each master flat
-            master_data = master.data if hasattr(master, 'data') else master
-            master_data_norm = master_data / np.median(master_data) if np.median(master_data) != 0 else master_data
-            # set any normalized pixels outside [0.5, 1.5] to 1.0
-            mask = (master_data_norm < 0.5) | (master_data_norm > 1.5)
-            if np.any(mask):
-                n_changed = int(np.count_nonzero(mask))
-                self.logger.info(f"Master flat {cfg_idx}: {n_changed} pixels outside [0.5,1.5], setting to 1.0")
-                master_data_norm = master_data_norm.copy()
-                master_data_norm[mask] = 1.0
-            plt.figure(figsize=(8, 6))
-            plt.imshow(master_data_norm, origin="lower", cmap="gray")
-            plt.title(f"Master flat {cfg_idx}")
-            plt.colorbar()
-            plt.show()
-
-            try:
-                master_dir = os.path.join(self.raw_data_path, "master_flats")
-                os.makedirs(master_dir, exist_ok=True)
-
-                # ensure a floating point dtype for saving
-                data_to_save = master_data_norm.astype(np.float32)
-
-                # Build header from master if present, otherwise create new one
-                if hasattr(master, "header") and master.header is not None:
-                    if isinstance(master.header, fits.Header):
-                        header = master.header.copy()
-                    else:
-                        header = fits.Header()
-                        try:
-                            for k, v in master.header.items():
-                                header[k] = v
-                        except Exception:
-                            # skip problematic header entries
-                            pass
+                if master_flat is None:
+                    master_flat = [data]        
                 else:
-                    header = fits.Header()
+                    master_flat.append(data)
 
-                # Standard metadata
-                header["IMTYPE"] = "MASTER_FLAT"
-                header["FCFGIDX"] = cfg_idx
-                header["NFRAMES"] = len(frames)
-                if hasattr(master, "unit") and master.unit is not None:
-                    header["BUNIT"] = str(master.unit)
+            if master_flat is not None:
+                combiner = Combiner(master_flat)
+                combined_median = combiner.median_combine()
 
-                # Add flat configuration details if available
-                if cfg_idx in self.flat_configurations:
-                    cfg = self.flat_configurations[cfg_idx]
-                    header["WINDOW"] = str(cfg.get("window", "UNKNOWN"))
-                    header["BINX"] = str(cfg.get("bin_x", "UNKNOWN"))
-                    header["BINY"] = str(cfg.get("bin_y", "UNKNOWN"))
-                    filters = cfg.get("filter")
-                    if isinstance(filters, (list, tuple)):
-                        header["FILTER"] = ",".join(str(f) for f in filters)
+                #TODO: use the configuration mapping here later
+                bias_frame = self.master_biases.get(str((configuration.get("window"), configuration.get("bin_x"), configuration.get("bin_y"))))
+                bad_pixel_mask = self.bad_pixel_masks.get(str((configuration.get("window"), configuration.get("bin_x"), configuration.get("bin_y"))))
+
+                
+                masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask) if bias_frame is not None and bad_pixel_mask is not None else None
+
+                masked_flat = np.ma.masked_array(combined_median.data, mask=bad_pixel_mask) if bad_pixel_mask is not None else None
+
+                bias_subtracted_flat = masked_flat - masked_bias if masked_flat is not None and masked_bias is not None else None
+
+                # choose the array to work on: bias-subtracted flat if available, otherwise the combined median
+                work_arr = None
+                if bias_subtracted_flat is not None:
+                    work_arr = np.asarray(bias_subtracted_flat)
+                else:
+                    work_arr = np.asarray(combined_median.data)
+
+                finite_mask = np.isfinite(work_arr)
+                if not np.any(finite_mask):
+                    self.logger.warning("No finite pixels in combined flat; skipping masking and histogram")
+                    bad_pixel_mask = ~finite_mask
+                    master_flat = CCDData(work_arr, unit=u.adu, header=combined_median.header)
+                    self.master_flats[key] = master_flat
+                    self.bad_pixel_masks[str((configuration.get("window"), configuration.get("bin_x"), configuration.get("bin_y")))] = bad_pixel_mask
+                else:
+                    vals = work_arr[finite_mask].ravel()
+                    median_val = float(np.median(vals))
+
+                    # use ±0.2 * median on a copy to estimate sigma (robust against outliers)
+                    if median_val == 0.0:
+                        tol_small = 1e-6
+                        lower_small = -tol_small
+                        upper_small = tol_small
                     else:
-                        header["FILTER"] = str(filters)
+                        delta_small = 0.2 * abs(median_val)
+                        lower_small = median_val - delta_small
+                        upper_small = median_val + delta_small
 
-                hdu = fits.PrimaryHDU(data=data_to_save, header=header)
-                outname = f"master_flat_{cfg_idx:03d}.fits"
-                outpath = os.path.join(master_dir, outname)
-                hdu.writeto(outpath, overwrite=True)
-                self.logger.info(f"Saved master flat {cfg_idx} to {outpath}")
-            except Exception as e:
-                self.logger.error(f"Failed to save master flat {cfg_idx}: {e}")
+                    self.logger.info(f"Master flat initial median: {median_val:.3f}, ±0.2*median = [{lower_small:.3f}, {upper_small:.3f}]")
 
+                    non_finite = ~finite_mask
+                    mask_small = non_finite | (work_arr < lower_small) | (work_arr > upper_small)
+                    data_copy = work_arr.copy()
+                    masked_copy = np.ma.masked_array(data_copy, mask=mask_small)
+
+                    kept_vals_small = masked_copy.compressed()
+                    if kept_vals_small.size == 0:
+                        self.logger.warning("No pixels remain after ±0.2*median masking on copy; using all finite pixels to estimate sigma")
+                        kept_vals_small = vals
+
+                    try:
+                        sigma_est = float(np.std(kept_vals_small, ddof=1)) if kept_vals_small.size > 1 else float(np.std(kept_vals_small, ddof=0))
+                    except Exception:
+                        sigma_est = float(np.std(kept_vals_small, ddof=0))
+
+                    if sigma_est == 0.0 or not np.isfinite(sigma_est):
+                        sigma_est = max(abs(median_val) * 0.01, 1e-6)
+                        self.logger.warning(f"Estimated sigma is zero or non-finite; using fallback sigma={sigma_est:.6g}")
+
+                    self.logger.info(f"Estimated sigma from ±0.2*median-masked copy: {sigma_est:.3f}")
+
+                    # mask original with median ± 5*sigma
+                    lower_5s = median_val - 5.0 * sigma_est
+                    upper_5s = median_val + 5.0 * sigma_est
+                    self.logger.info(f"Masking original combined flat with median ± 5*sigma = [{lower_5s:.3f}, {upper_5s:.3f}]")
+
+                    combined_mask = np.zeros_like(work_arr, dtype=bool)
+                    combined_mask |= non_finite
+                    out_of_range_5s = (work_arr < lower_5s) | (work_arr > upper_5s)
+                    combined_mask |= out_of_range_5s
+                    n_masked = int(np.count_nonzero(combined_mask))
+                    n_total = work_arr.size
+                    self.logger.info(f"Masked {n_masked}/{n_total} flat pixels outside median ± 5*sigma or non-finite")
+
+                    bad_pixel_mask = combined_mask.copy()
+                    masked_data_5s = np.ma.masked_array(work_arr, mask=bad_pixel_mask)
+
+                    # histogram for sigma estimation (from the ±0.2*median copy)
+                    if kept_vals_small.size == 0:
+                        self.logger.warning("No pixels available to plot histogram after ±0.2*median masking")
+                    else:
+                        if kept_vals_small.size > 200_000:
+                            idxs = np.random.choice(kept_vals_small.size, size=200_000, replace=False)
+                            vals_plot = kept_vals_small[idxs]
+                        else:
+                            vals_plot = kept_vals_small
+
+                        plt.figure(figsize=(8, 5))
+                        plt.hist(vals_plot, bins=100, color="C0", alpha=0.8)
+                        plt.axvline(median_val, color="r", linestyle="-", linewidth=2, label=f"median = {median_val:.2f}")
+                        plt.axvline(lower_small, color="orange", linestyle="--", linewidth=1.5, label=f"±0.2·median bounds")
+                        plt.axvline(upper_small, color="orange", linestyle="--", linewidth=1.5)
+                        plt.axvline(lower_5s, color="magenta", linestyle=":", linewidth=2, label=f"-5σ = {lower_5s:.2f}")
+                        plt.axvline(upper_5s, color="magenta", linestyle=":", linewidth=2, label=f"+5σ = {upper_5s:.2f}")
+                        plt.title("Histogram used for sigma estimation (±0.2·median masked copy)")
+                        plt.xlabel("ADU")
+                        plt.ylabel("Counts")
+                        plt.legend(loc="upper right")
+                        span = upper_5s - lower_5s
+                        margin = span * 0.05 if span > 0 else max(abs(median_val) * 0.1, 1.0)
+                        plt.xlim(lower_5s - margin, upper_5s + margin)
+                        plt.tight_layout()
+                        plt.show()
+
+                    # show bad-pixel mask and masked image for inspection
+                    plt.figure(figsize=(6, 5))
+                    plt.imshow(bad_pixel_mask, origin="lower", cmap="gray")
+                    plt.title(f"Bad pixel mask (median ± 5σ) for flat config idx: {key}")
+                    plt.colorbar()
+                    plt.show()
+
+                    plt.figure(figsize=(6, 5))
+                    plt.imshow(masked_data_5s, origin="lower", cmap="gray")
+                    plt.title(f"Masked combined master flat (median ± 5σ) for config idx: {key}")
+                    plt.colorbar()
+                    plt.show()
+
+                    # normalize the master flat to median = 1.0 (using the same median_val)
+                    if median_val == 0.0:
+                        norm = 1.0
+                    else:
+                        norm = median_val
+
+                    master_flat_data = (work_arr / norm).astype(np.float32)
+                    master_flat = CCDData(master_flat_data, unit=u.adu, header=combined_median.header)
+
+                    # store in memory keyed by the flat configuration index
+                    self.master_flats[key] = master_flat
+                    # also record bad pixel mask indexed by the configuration tuple (consistent with bias masks)
+                    self.bad_pixel_masks[str((configuration.get("window"), configuration.get("bin_x"), configuration.get("bin_y")))] = bad_pixel_mask
+
+                    # write to disk
+                    try:
+                        outdir = os.path.join(self.raw_data_path, "master_flats")
+                        os.makedirs(outdir, exist_ok=True)
+                        outpath = os.path.join(outdir, f"master_flat_{key:03d}.fits")
+                        fits.PrimaryHDU(master_flat.data.astype(np.float32)).writeto(outpath, overwrite=True)
+                        self.logger.info(f"Wrote master flat {key} to {outpath}")
+                    except Exception as e:
+                        self.logger.error(f"Failed to write master flat {key} to disk: {e}")
 
 
         
@@ -878,9 +994,8 @@ class ReductionPipeline:
 
         self.make_master_bias()
 
+        self.determine_flat_configurations()
 
-        #self.determine_flat_configurations()
-
-        #self.make_master_flats()
+        self.make_master_flats()
 
         #self.reduce()
