@@ -31,6 +31,9 @@ class ReductionPipeline:
         self.science_to_bias_map = {}
         self.flat_configurations = {}
 
+        self.master_biases = {}
+        self.bad_pixel_masks = {}
+
     def sort_data(self):
 
         all_files = os.listdir(self.raw_data_path)
@@ -246,6 +249,8 @@ class ReductionPipeline:
 
         Also build a mapping of science setup indices -> bias configuration index
         and write that mapping to disk.
+
+        Additionally collect bias filenames for each bias configuration (similar to setup_table).
         """
 
         if not getattr(self, "setup_table", None):
@@ -254,6 +259,8 @@ class ReductionPipeline:
             self.science_to_bias_map = {}
             return self.bias_configurations
         
+        # Start by creating unique bias configurations from the setup table (so we
+        # ensure science setups have corresponding bias configs where possible).
         unique_map = {}
         seen = set()
         idx = 0
@@ -265,13 +272,54 @@ class ReductionPipeline:
             if key in seen:
                 continue
             seen.add(key)
-            unique_map[idx] = {"window": w, "bin_x": bx, "bin_y": by}
+            unique_map[idx] = {"window": w, "bin_x": bx, "bin_y": by, "files": []}
             idx += 1
 
         self.bias_configurations = unique_map
 
         # build a quick lookup by (window, bin_x, bin_y) -> bias_idx
         bias_lookup = {(cfg["window"], cfg["bin_x"], cfg["bin_y"]): bidx for bidx, cfg in self.bias_configurations.items()}
+
+        # Now, iterate through available bias files and append them to the proper configuration.
+        bias_files = getattr(self, "bias_files", []) or []
+        next_idx = max(self.bias_configurations.keys()) + 1 if self.bias_configurations else 0
+
+        for bf in bias_files:
+            hdul = self.open_fits_file(bf)
+            if hdul is None:
+                self.logger.warning(f"Could not open bias file {bf}, skipping")
+                continue
+
+            try:
+                window_header_extension = self.instrument.detector.window_keyword[1]
+                bin_x_header_extension = self.instrument.detector.bin_x_keyword[1]
+                bin_y_header_extension = self.instrument.detector.bin_y_keyword[1]
+
+                window_keyword = self.instrument.detector.window_keyword[0]
+                bin_x_keyword = self.instrument.detector.bin_x_keyword[0]
+                bin_y_keyword = self.instrument.detector.bin_y_keyword[0]
+
+                w = hdul[window_header_extension].header.get(window_keyword, "UNKNOWN")
+                bx = hdul[bin_x_header_extension].header.get(bin_x_keyword, "UNKNOWN")
+                by = hdul[bin_y_header_extension].header.get(bin_y_keyword, "UNKNOWN")
+            except Exception as e:
+                self.logger.warning(f"Failed to read header keywords from bias file {bf}: {e}")
+                w, bx, by = "UNKNOWN", "UNKNOWN", "UNKNOWN"
+
+            key = (w, bx, by)
+            matched_idx = bias_lookup.get(key)
+            if matched_idx is None:
+                # create a new bias configuration to hold this bias file
+                matched_idx = next_idx
+                self.bias_configurations[matched_idx] = {"window": w, "bin_x": bx, "bin_y": by, "files": [bf]}
+                bias_lookup[key] = matched_idx
+                next_idx += 1
+                self.logger.info(f"Created new bias configuration {matched_idx} for key {key} and added file {bf}")
+            else:
+                files_list = self.bias_configurations[matched_idx].setdefault("files", [])
+                if bf not in files_list:
+                    files_list.append(bf)
+                    self.logger.info(f"Appended bias file {bf} to bias configuration {matched_idx}")
 
         # map each science setup (setup_table key) to a bias configuration index (or None)
         science_to_bias = {}
@@ -282,7 +330,7 @@ class ReductionPipeline:
 
         self.science_to_bias_map = science_to_bias
 
-        self.logger.info(f"Found {len(unique_map)} unique bias configurations")
+        self.logger.info(f"Found {len(self.bias_configurations)} unique bias configurations")
         self.logger.info(f"Bias configurations: {self.bias_configurations}")
         self.logger.info(f"Science -> Bias mapping: {self.science_to_bias_map}")
 
@@ -294,6 +342,7 @@ class ReductionPipeline:
                     "window": str(v.get("window", "UNKNOWN")),
                     "bin_x": str(v.get("bin_x", "UNKNOWN")),
                     "bin_y": str(v.get("bin_y", "UNKNOWN")),
+                    "files": [str(f) for f in (v.get("files") or [])],
                 }
             with open(outpath, "w", encoding="utf-8") as fh:
                 json.dump(serializable, fh, indent=2, ensure_ascii=False)
@@ -316,172 +365,129 @@ class ReductionPipeline:
 
     def make_master_bias(self):
         
-        raw_frame_dict = {}
-
-        for file in self.bias_files:
-
-            hdul = self.open_fits_file(file)
-
-            if hdul is None:
-                self.logger.warning(f"Could not open {file}, skipping")
-                continue
-
-            window_header_extension = self.instrument.detector.window_keyword[1]
-            bin_x_header_extension = self.instrument.detector.bin_x_keyword[1]
-            bin_y_header_extension = self.instrument.detector.bin_y_keyword[1]
-
-            window_keyword = self.instrument.detector.window_keyword[0]
-            bin_x_keyword = self.instrument.detector.bin_x_keyword[0]
-            bin_y_keyword = self.instrument.detector.bin_y_keyword[0]
-
-            window = hdul[window_header_extension].header.get(window_keyword, "UNKNOWN")
-            bin_x = hdul[bin_x_header_extension].header.get(bin_x_keyword, "UNKNOWN")
-            bin_y = hdul[bin_y_header_extension].header.get(bin_y_keyword, "UNKNOWN")
-
-            key = (window, bin_x, bin_y)
-
-            if not getattr(self, "bias_configurations", None):
-                self.logger.warning(f"No bias configurations available; skipping {file}")
-                continue
-
-            matched_idx = next(
-                (
-                    idx
-                    for idx, cfg in self.bias_configurations.items()
-                    if (cfg.get("window"), cfg.get("bin_x"), cfg.get("bin_y")) == key
-                ),
-                None,
-            )
-
-            if matched_idx is None:
-                self.logger.warning(f"No matching bias configuration for {key} in file {file}, skipping")
-                continue
-
-            data = self.get_fits_data(file)
-            if data is None:
-                self.logger.warning(f"Could not read data from {file}, skipping")
-                continue
-
-            # store CCDData object under the integer configuration key; append if multiple frames
-            raw_frame_dict.setdefault(matched_idx, []).append(data)
-            self.logger.info(f"Appended CCDData for {file} to raw_frame_dict[{matched_idx}] (total {len(raw_frame_dict[matched_idx])} frames)")
-
-
         self.master_biases = {}
+        self.bad_pixel_masks = {}
 
-        if not raw_frame_dict:
-            self.logger.info("No bias frames to combine.")
-            return
+        for configuration in self.bias_configurations.values():
+            self.logger.info(f"Processing bias configuration: {configuration}")
 
-        for cfg_idx, frames in raw_frame_dict.items():
-            if not frames:
-                self.logger.warning(f"No frames for configuration {cfg_idx}, skipping")
-                continue
+            master_bias = None
+            bad_pixel_mask = None
 
-            try:
-                # Use CCDData objects directly with Combiner
-                comb = Combiner(frames)
-                master = comb.median_combine()
-                self.logger.info(f"Combined {len(frames)} CCDData frames using ccdproc.Combiner with sigma clipping")
-            except Exception as e:
-                # Fallback to numpy median if Combiner fails
-                self.logger.warning(f"ccdproc.Combiner failed for config {cfg_idx}: {e}. Falling back to numpy.median")
-                try:
-                    # Extract data arrays from CCDData objects for numpy fallback
-                    data_arrays = [frame.data for frame in frames]
-                    stacked = np.stack(data_arrays, axis=0)
-                    median_data = np.median(stacked, axis=0)
-                    # Create a new CCDData object with the combined data
-                    master = CCDData(median_data, unit=frames[0].unit, header=frames[0].header)
-                except Exception as fallback_error:
-                    self.logger.error(f"Both ccdproc and numpy fallback failed for config {cfg_idx}: {fallback_error}")
+            for bias_file in configuration.get("files", []):
+                data = self.get_fits_data(bias_file)
+                if data is None:
+                    self.logger.warning(f"Could not read bias file {bias_file}, skipping")
                     continue
 
-            self.master_biases[cfg_idx] = master
-            self.logger.info(f"Created master bias for config {cfg_idx} from {len(frames)} frames")
-
-        # Plot the masters
-        n_masters = len(self.master_biases)
-        if n_masters == 0:
-            self.logger.info("No master bias frames to plot.")
-        else:
-            ncols = min(3, n_masters)
-            nrows = math.ceil(n_masters / ncols)
-            fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
-            # Normalize axes array shape for consistent indexing
-            if isinstance(axes, np.ndarray):
-                axes_flat = axes.flatten()
-            else:
-                axes_flat = [axes]
-
-            # Turn off any unused axes
-            for ax in axes_flat[n_masters:]:
-                ax.axis("off")
-
-            for i, (cfg_idx, master) in enumerate(sorted(self.master_biases.items())):
-                ax = axes_flat[i]
-                # Extract data from CCDData object for plotting
-                master_data = master.data if hasattr(master, 'data') else master
-                im = ax.imshow(master_data, origin="lower", cmap="gray")
-                ax.set_title(f"Master bias {cfg_idx}")
-                ax.axis("off")
-                fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-
-            plt.tight_layout()
-            plt.show()
-
-        # save master biases to a subdirectory inside the raw data directory
-        master_dir = os.path.join(self.raw_data_path, "master_biases")
-        os.makedirs(master_dir, exist_ok=True)
-
-        for cfg_idx, master in sorted(self.master_biases.items()):
-            try:
-                # extract data and header (support CCDData or raw numpy arrays)
-                data = master.data if hasattr(master, "data") else np.asarray(master)
-                
-                # Handle header properly - convert OrderedDict to fits.Header if needed
-                if hasattr(master, "header") and master.header is not None:
-                    if isinstance(master.header, fits.Header):
-                        # Already a FITS header, just copy it
-                        header = master.header.copy()
-                    else:
-                        # Convert OrderedDict or other dict-like object to FITS Header
-                        header = fits.Header()
-                        for key, value in master.header.items():
-                            try:
-                                header[key] = value
-                            except Exception as header_error:
-                                # Skip problematic header entries
-                                self.logger.warning(f"Could not add header key {key}={value}: {header_error}")
+                # store CCDData objects in a list for median combining later
+                if master_bias is None:
+                    master_bias = [data]
                 else:
-                    # Create new header if none exists
-                    header = fits.Header()
+                    master_bias.append(data)
 
-                # record some metadata
-                header["IMTYPE"] = "MASTER_BIAS"
-                header["BCFGIDX"] = cfg_idx
-                if hasattr(master, "unit") and master.unit is not None:
-                    header["BUNIT"] = str(master.unit)
+            
+            combiner = Combiner(master_bias)
 
-                # Add bias configuration info to header
-                if cfg_idx in self.bias_configurations:
-                    cfg = self.bias_configurations[cfg_idx]
-                    header["WINDOW"] = str(cfg.get("window", "UNKNOWN"))
-                    header["BINX"] = str(cfg.get("bin_x", "UNKNOWN"))
-                    header["BINY"] = str(cfg.get("bin_y", "UNKNOWN"))
+            combined_median = combiner.median_combine()
 
-                hdu = fits.PrimaryHDU(data=data, header=header)
-                outname = f"master_bias_{cfg_idx:03d}.fits"
-                outpath = os.path.join(master_dir, outname)
-                hdu.writeto(outpath, overwrite=True)
+            # mask NaN/Inf and everything outside the interval [5000, 30000]
+            data = np.asarray(combined_median.data)
 
-                self.logger.info(f"Saved master bias {cfg_idx} to {outpath}")
-            except Exception as e:
-                self.logger.error(f"Failed to save master bias {cfg_idx}: {e}")
-                # Add more detailed error information
-                self.logger.error(f"Master type: {type(master)}, has header: {hasattr(master, 'header')}")
-                if hasattr(master, 'header'):
-                    self.logger.error(f"Header type: {type(master.header)}")
+
+            # Compute statistics on finite pixels only
+            finite_mask = np.isfinite(data)
+            if not np.any(finite_mask):
+                self.logger.warning("No finite pixels in combined median; skipping masking and histogram")
+                # still store results and continue
+                bad_pixel_mask = ~finite_mask
+                master_bias = combined_median
+                self.master_biases[str(configuration)] = master_bias
+                self.bad_pixel_masks[str(configuration)] = bad_pixel_mask
+            else:
+                vals = data[finite_mask].ravel()
+
+                # compute median and ±0.1*median bounds (handle median==0)
+                median_val = float(np.median(vals))
+                if median_val == 0.0:
+                    tol = 1e-6
+                    lower = -tol
+                    upper = tol
+                else:
+                    delta = 0.1 * abs(median_val)
+                    lower = median_val - delta
+                    upper = median_val + delta
+
+                self.logger.info(f"Master bias stats - median: {median_val:.3f}, ±0.1*median = [{lower:.3f}, {upper:.3f}]")
+
+                # build bad-pixel mask: non-finite OR outside [lower, upper]
+                combined_median_mask = np.zeros_like(data, dtype=bool)
+                non_finite = ~finite_mask
+                combined_median_mask |= non_finite
+                out_of_range = (data < lower) | (data > upper)
+                combined_median_mask |= out_of_range
+                n_masked = int(np.count_nonzero(combined_median_mask))
+                n_total = data.size
+                self.logger.info(f"Masked {n_masked}/{n_total} pixels outside ±0.1*median or non-finite")
+
+                bad_pixel_mask = combined_median_mask.copy()
+
+                # create a masked array of the combined median for plotting/inspection
+                masked_data = np.ma.masked_array(data, mask=bad_pixel_mask)
+
+                # histogram of the masked array (i.e. only the kept pixels)
+                kept_vals = masked_data.compressed()
+                if kept_vals.size == 0:
+                    self.logger.warning("No pixels remain after ±0.1*median masking; skipping histogram")
+                else:
+                    # subsample for plotting if very large
+                    if kept_vals.size > 200_000:
+                        idx = np.random.choice(kept_vals.size, size=200_000, replace=False)
+                        vals_plot = kept_vals[idx]
+                    else:
+                        vals_plot = kept_vals
+
+                    plt.figure(figsize=(8, 5))
+                    plt.hist(vals_plot, bins=100, color="C0", alpha=0.8)
+                    plt.axvline(median_val, color="r", linestyle="-", linewidth=2, label=f"median = {median_val:.2f}")
+                    plt.axvline(lower, color="orange", linestyle="--", linewidth=2, label=f"-0.1·median = {lower:.2f}")
+                    plt.axvline(upper, color="orange", linestyle="--", linewidth=2, label=f"+0.1·median = {upper:.2f}")
+                    plt.title("Histogram of combined master bias (pixels within ±0.1 median)")
+                    plt.xlabel("ADU")
+                    plt.ylabel("Counts")
+                    plt.legend(loc="upper right")
+
+                    # set x-limits to include median ±0.1*median with a small margin
+                    span = upper - lower
+                    margin = span * 0.05 if span > 0 else max(abs(median_val) * 0.1, 1.0)
+                    plt.xlim(lower - margin, upper + margin)
+
+                    plt.tight_layout()
+                    plt.show()
+
+                # show bad-pixel mask and masked image for visual inspection
+                plt.figure(figsize=(6, 5))
+                plt.imshow(bad_pixel_mask, origin="lower", cmap="gray")
+                plt.title(f"Bad pixel mask for bias config: {configuration}")
+                plt.colorbar()
+                plt.show()
+
+                plt.figure(figsize=(6, 5))
+                plt.imshow(masked_data, origin="lower", cmap="gray")
+                plt.title(f"Masked combined master bias for config: {configuration}")
+                plt.colorbar()
+                plt.show()
+
+                plt.figure(figsize=(6, 5))
+                plt.imshow(data, origin="lower", cmap="gray")
+                plt.title(f"Combined master bias for config: {configuration}")
+                plt.colorbar()
+                plt.show()
+
+                # store results for this configuration
+                master_bias = combined_median
+                self.master_biases[str(configuration)] = master_bias
+                self.bad_pixel_masks[str(configuration)] = bad_pixel_mask
 
 
     def determine_flat_configurations(self):
@@ -832,7 +838,7 @@ class ReductionPipeline:
 
         self.determine_bias_configurations()
 
-        #self.make_master_bias()
+        self.make_master_bias()
 
 
         #self.determine_flat_configurations()
