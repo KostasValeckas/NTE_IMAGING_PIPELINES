@@ -407,74 +407,103 @@ class ReductionPipeline:
             else:
                 vals = data[finite_mask].ravel()
 
-                # compute median and ±0.1*median bounds (handle median==0)
+                # compute global median (used for both steps)
                 median_val = float(np.median(vals))
+
+                # --- Step 1: build a copy and apply median ±0.1*median mask ---
                 if median_val == 0.0:
-                    tol = 1e-6
-                    lower = -tol
-                    upper = tol
+                    tol_small = 1e-6
+                    lower_small = -tol_small
+                    upper_small = tol_small
                 else:
-                    delta = 0.1 * abs(median_val)
-                    lower = median_val - delta
-                    upper = median_val + delta
+                    delta_small = 0.1 * abs(median_val)
+                    lower_small = median_val - delta_small
+                    upper_small = median_val + delta_small
 
-                self.logger.info(f"Master bias stats - median: {median_val:.3f}, ±0.1*median = [{lower:.3f}, {upper:.3f}]")
+                self.logger.info(f"Master bias initial median: {median_val:.3f}, ±0.1*median = [{lower_small:.3f}, {upper_small:.3f}]")
 
-                # build bad-pixel mask: non-finite OR outside [lower, upper]
-                combined_median_mask = np.zeros_like(data, dtype=bool)
+                # mask for the small window on a copy
                 non_finite = ~finite_mask
+                mask_small = non_finite | (data < lower_small) | (data > upper_small)
+                data_copy = data.copy()
+                masked_copy = np.ma.masked_array(data_copy, mask=mask_small)
+
+                # get values remaining in the copy to estimate sigma
+                kept_vals_small = masked_copy.compressed()
+                if kept_vals_small.size == 0:
+                    # fallback to using all finite vals if nothing remains after ±0.1*median
+                    self.logger.warning("No pixels remain after ±0.1*median masking on copy; using all finite pixels to estimate sigma")
+                    kept_vals_small = vals
+
+                # robust std estimate (use numpy std; fallback if degenerate)
+                try:
+                    sigma_est = float(np.std(kept_vals_small, ddof=1)) if kept_vals_small.size > 1 else float(np.std(kept_vals_small, ddof=0))
+                except Exception:
+                    sigma_est = float(np.std(kept_vals_small, ddof=0))
+
+                if sigma_est == 0.0 or not np.isfinite(sigma_est):
+                    sigma_est = max(abs(median_val) * 0.01, 1e-6)  # small fallback
+                    self.logger.warning(f"Estimated sigma is zero or non-finite; using fallback sigma={sigma_est:.6g}")
+
+                self.logger.info(f"Estimated sigma from ±0.1*median-masked copy: {sigma_est:.3f}")
+
+                # --- Step 2: mask original using median ± 5*sigma ---
+                lower_3s = median_val - 5.0 * sigma_est
+                upper_3s = median_val + 5.0 * sigma_est
+                self.logger.info(f"Masking original combined median with median ± 3*sigma = [{lower_3s:.3f}, {upper_3s:.3f}]")
+
+                combined_median_mask = np.zeros_like(data, dtype=bool)
                 combined_median_mask |= non_finite
-                out_of_range = (data < lower) | (data > upper)
-                combined_median_mask |= out_of_range
+                out_of_range_3s = (data < lower_3s) | (data > upper_3s)
+                combined_median_mask |= out_of_range_3s
                 n_masked = int(np.count_nonzero(combined_median_mask))
                 n_total = data.size
-                self.logger.info(f"Masked {n_masked}/{n_total} pixels outside ±0.1*median or non-finite")
+                self.logger.info(f"Masked {n_masked}/{n_total} pixels outside median ± 3*sigma or non-finite")
 
                 bad_pixel_mask = combined_median_mask.copy()
 
                 # create a masked array of the combined median for plotting/inspection
-                masked_data = np.ma.masked_array(data, mask=bad_pixel_mask)
+                masked_data_3s = np.ma.masked_array(data, mask=bad_pixel_mask)
 
-                # histogram of the masked array (i.e. only the kept pixels)
-                kept_vals = masked_data.compressed()
-                if kept_vals.size == 0:
-                    self.logger.warning("No pixels remain after ±0.1*median masking; skipping histogram")
+                # histogram of the values used for sigma estimation (the copy)
+                if kept_vals_small.size == 0:
+                    self.logger.warning("No pixels available to plot histogram after ±0.1*median masking")
                 else:
                     # subsample for plotting if very large
-                    if kept_vals.size > 200_000:
-                        idx = np.random.choice(kept_vals.size, size=200_000, replace=False)
-                        vals_plot = kept_vals[idx]
+                    if kept_vals_small.size > 200_000:
+                        idx = np.random.choice(kept_vals_small.size, size=200_000, replace=False)
+                        vals_plot = kept_vals_small[idx]
                     else:
-                        vals_plot = kept_vals
+                        vals_plot = kept_vals_small
 
                     plt.figure(figsize=(8, 5))
                     plt.hist(vals_plot, bins=100, color="C0", alpha=0.8)
                     plt.axvline(median_val, color="r", linestyle="-", linewidth=2, label=f"median = {median_val:.2f}")
-                    plt.axvline(lower, color="orange", linestyle="--", linewidth=2, label=f"-0.1·median = {lower:.2f}")
-                    plt.axvline(upper, color="orange", linestyle="--", linewidth=2, label=f"+0.1·median = {upper:.2f}")
-                    plt.title("Histogram of combined master bias (pixels within ±0.1 median)")
+                    plt.axvline(lower_small, color="orange", linestyle="--", linewidth=1.5, label=f"±0.1·median bounds")
+                    plt.axvline(upper_small, color="orange", linestyle="--", linewidth=1.5)
+                    plt.axvline(lower_3s, color="magenta", linestyle=":", linewidth=2, label=f"-3σ = {lower_3s:.2f}")
+                    plt.axvline(upper_3s, color="magenta", linestyle=":", linewidth=2, label=f"+3σ = {upper_3s:.2f}")
+                    plt.title("Histogram used for sigma estimation (±0.1·median masked copy)")
                     plt.xlabel("ADU")
                     plt.ylabel("Counts")
                     plt.legend(loc="upper right")
-
-                    # set x-limits to include median ±0.1*median with a small margin
-                    span = upper - lower
+                    # set x-limits to include median ± 3*sigma with a small margin
+                    span = upper_3s - lower_3s
                     margin = span * 0.05 if span > 0 else max(abs(median_val) * 0.1, 1.0)
-                    plt.xlim(lower - margin, upper + margin)
-
+                    plt.xlim(lower_3s - margin, upper_3s + margin)
                     plt.tight_layout()
                     plt.show()
 
-                # show bad-pixel mask and masked image for visual inspection
+                # show bad-pixel mask and masked image for visual inspection (3-sigma mask)
                 plt.figure(figsize=(6, 5))
                 plt.imshow(bad_pixel_mask, origin="lower", cmap="gray")
-                plt.title(f"Bad pixel mask for bias config: {configuration}")
+                plt.title(f"Bad pixel mask (median ± 3σ) for bias config: {configuration}")
                 plt.colorbar()
                 plt.show()
 
                 plt.figure(figsize=(6, 5))
-                plt.imshow(masked_data, origin="lower", cmap="gray")
-                plt.title(f"Masked combined master bias for config: {configuration}")
+                plt.imshow(masked_data_3s, origin="lower", cmap="gray")
+                plt.title(f"Masked combined master bias (median ± 3σ) for config: {configuration}")
                 plt.colorbar()
                 plt.show()
 
