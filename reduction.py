@@ -368,7 +368,7 @@ class ReductionPipeline:
         self.master_biases = {}
         self.bad_pixel_masks = {}
 
-        for configuration in self.bias_configurations.values():
+        for key, configuration in self.bias_configurations.items():
             self.logger.info(f"Processing bias configuration: {configuration}")
 
             master_bias = None
@@ -391,9 +391,7 @@ class ReductionPipeline:
 
             combined_median = combiner.median_combine()
 
-            # mask NaN/Inf and everything outside the interval [5000, 30000]
             data = np.asarray(combined_median.data)
-
 
             # Compute statistics on finite pixels only
             finite_mask = np.isfinite(data)
@@ -448,14 +446,14 @@ class ReductionPipeline:
                 self.logger.info(f"Estimated sigma from ±0.1*median-masked copy: {sigma_est:.3f}")
 
                 # --- Step 2: mask original using median ± 5*sigma ---
-                lower_3s = median_val - 5.0 * sigma_est
-                upper_3s = median_val + 5.0 * sigma_est
-                self.logger.info(f"Masking original combined median with median ± 3*sigma = [{lower_3s:.3f}, {upper_3s:.3f}]")
+                lower_5s = median_val - 5.0 * sigma_est
+                upper_5s = median_val + 5.0 * sigma_est
+                self.logger.info(f"Masking original combined median with median ± 5*sigma = [{lower_5s:.3f}, {upper_5s:.3f}]")
 
                 combined_median_mask = np.zeros_like(data, dtype=bool)
                 combined_median_mask |= non_finite
-                out_of_range_3s = (data < lower_3s) | (data > upper_3s)
-                combined_median_mask |= out_of_range_3s
+                out_of_range_5s = (data < lower_5s) | (data > upper_5s)
+                combined_median_mask |= out_of_range_5s
                 n_masked = int(np.count_nonzero(combined_median_mask))
                 n_total = data.size
                 self.logger.info(f"Masked {n_masked}/{n_total} pixels outside median ± 3*sigma or non-finite")
@@ -463,7 +461,7 @@ class ReductionPipeline:
                 bad_pixel_mask = combined_median_mask.copy()
 
                 # create a masked array of the combined median for plotting/inspection
-                masked_data_3s = np.ma.masked_array(data, mask=bad_pixel_mask)
+                masked_data_5s = np.ma.masked_array(data, mask=bad_pixel_mask)
 
                 # histogram of the values used for sigma estimation (the copy)
                 if kept_vals_small.size == 0:
@@ -481,16 +479,16 @@ class ReductionPipeline:
                     plt.axvline(median_val, color="r", linestyle="-", linewidth=2, label=f"median = {median_val:.2f}")
                     plt.axvline(lower_small, color="orange", linestyle="--", linewidth=1.5, label=f"±0.1·median bounds")
                     plt.axvline(upper_small, color="orange", linestyle="--", linewidth=1.5)
-                    plt.axvline(lower_3s, color="magenta", linestyle=":", linewidth=2, label=f"-3σ = {lower_3s:.2f}")
-                    plt.axvline(upper_3s, color="magenta", linestyle=":", linewidth=2, label=f"+3σ = {upper_3s:.2f}")
+                    plt.axvline(lower_5s, color="magenta", linestyle=":", linewidth=2, label=f"-5σ = {lower_5s:.2f}")
+                    plt.axvline(upper_5s, color="magenta", linestyle=":", linewidth=2, label=f"+5σ = {upper_5s:.2f}")
                     plt.title("Histogram used for sigma estimation (±0.1·median masked copy)")
                     plt.xlabel("ADU")
                     plt.ylabel("Counts")
                     plt.legend(loc="upper right")
-                    # set x-limits to include median ± 3*sigma with a small margin
-                    span = upper_3s - lower_3s
+                    # set x-limits to include median ± 5*sigma with a small margin
+                    span = upper_5s - lower_5s
                     margin = span * 0.05 if span > 0 else max(abs(median_val) * 0.1, 1.0)
-                    plt.xlim(lower_3s - margin, upper_3s + margin)
+                    plt.xlim(lower_5s - margin, upper_5s + margin)
                     plt.tight_layout()
                     plt.show()
 
@@ -502,8 +500,8 @@ class ReductionPipeline:
                 plt.show()
 
                 plt.figure(figsize=(6, 5))
-                plt.imshow(masked_data_3s, origin="lower", cmap="gray")
-                plt.title(f"Masked combined master bias (median ± 3σ) for config: {configuration}")
+                plt.imshow(masked_data_5s, origin="lower", cmap="gray")
+                plt.title(f"Masked combined master bias (median ± 5σ) for config: {configuration}")
                 plt.colorbar()
                 plt.show()
 
@@ -514,9 +512,20 @@ class ReductionPipeline:
                 plt.show()
 
                 # store results for this configuration
-                master_bias = combined_median
-                self.master_biases[str(configuration)] = master_bias
-                self.bad_pixel_masks[str(configuration)] = bad_pixel_mask
+                master_bias = CCDData(data, unit=u.adu, header=combined_median.header)
+                self.master_biases[str(key)] = master_bias
+                self.bad_pixel_masks[str(key)] = bad_pixel_mask
+
+
+                try:
+                    outdir = os.path.join(self.raw_data_path, "master_biases")
+                    os.makedirs(outdir, exist_ok=True)
+                    outpath = os.path.join(outdir, f"master_bias_{key}.fits")
+                    # write only the data array, no header manipulation
+                    fits.PrimaryHDU(data.astype(np.float32)).writeto(outpath, overwrite=True)
+                    self.logger.info(f"Wrote master bias {key} to {outpath}")
+                except Exception as e:
+                    self.logger.error(f"Failed to write master bias {key} to disk: {e}")
 
 
     def determine_flat_configurations(self):
