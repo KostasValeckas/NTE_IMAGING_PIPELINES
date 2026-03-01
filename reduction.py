@@ -9,6 +9,7 @@ from instruments import ImageType
 import math
 from ccdproc import Combiner, CCDData
 from astropy import units as u
+import json
 
 
 class ReductionPipeline:
@@ -27,6 +28,7 @@ class ReductionPipeline:
 
         self.setup_table = {}
         self.bias_configurations = {}
+        self.science_to_bias_map = {}
         self.flat_configurations = {}
 
     def sort_data(self):
@@ -147,6 +149,25 @@ class ReductionPipeline:
         self.logger.info(f"Setup table contents: {setup_table}")
 
         self.setup_table = setup_table
+
+
+        try:
+            outpath = os.path.join(self.raw_data_path, "setup_table.json")
+            serializable = {}
+            for k, v in self.setup_table.items():
+                serializable[k] = {
+                    "window": str(v.get("window", "UNKNOWN")),
+                    "bin_x": str(v.get("bin_x", "UNKNOWN")),
+                    "bin_y": str(v.get("bin_y", "UNKNOWN")),
+                    "filter": [str(f) for f in (v.get("filter") or [])],
+                    "files": [str(f) for f in (v.get("files") or [])],
+                }
+            with open(outpath, "w", encoding="utf-8") as fh:
+                json.dump(serializable, fh, indent=2, ensure_ascii=False)
+            self.logger.info(f"Wrote setup table to {outpath}")
+        except Exception as e:
+            self.logger.error(f"Failed to write setup table to JSON: {e}")
+
         return self.setup_table
 
 
@@ -222,11 +243,15 @@ class ReductionPipeline:
         """
         Build a new dict of unique detector configurations from self.setup_table,
         keeping only the 'window', 'bin_x' and 'bin_y' entries.
+
+        Also build a mapping of science setup indices -> bias configuration index
+        and write that mapping to disk.
         """
 
         if not getattr(self, "setup_table", None):
             self.logger.info("No setup table available to determine bias configurations.")
             self.bias_configurations = {}
+            self.science_to_bias_map = {}
             return self.bias_configurations
         
         unique_map = {}
@@ -245,8 +270,48 @@ class ReductionPipeline:
 
         self.bias_configurations = unique_map
 
+        # build a quick lookup by (window, bin_x, bin_y) -> bias_idx
+        bias_lookup = {(cfg["window"], cfg["bin_x"], cfg["bin_y"]): bidx for bidx, cfg in self.bias_configurations.items()}
+
+        # map each science setup (setup_table key) to a bias configuration index (or None)
+        science_to_bias = {}
+        for setup_idx, setup in self.setup_table.items():
+            key = (setup.get("window"), setup.get("bin_x"), setup.get("bin_y"))
+            matched = bias_lookup.get(key)
+            science_to_bias[setup_idx] = matched
+
+        self.science_to_bias_map = science_to_bias
+
         self.logger.info(f"Found {len(unique_map)} unique bias configurations")
         self.logger.info(f"Bias configurations: {self.bias_configurations}")
+        self.logger.info(f"Science -> Bias mapping: {self.science_to_bias_map}")
+
+        try:
+            outpath = os.path.join(self.raw_data_path, "bias_configurations.json")
+            serializable = {}
+            for k, v in self.bias_configurations.items():
+                serializable[str(k)] = {
+                    "window": str(v.get("window", "UNKNOWN")),
+                    "bin_x": str(v.get("bin_x", "UNKNOWN")),
+                    "bin_y": str(v.get("bin_y", "UNKNOWN")),
+                }
+            with open(outpath, "w", encoding="utf-8") as fh:
+                json.dump(serializable, fh, indent=2, ensure_ascii=False)
+            self.logger.info(f"Wrote bias configurations to {outpath}")
+        except Exception as e:
+            self.logger.error(f"Failed to write bias configurations to JSON: {e}")
+
+        try:
+            map_outpath = os.path.join(self.raw_data_path, "science_to_bias_map.json")
+            # ensure keys are strings for JSON compatibility and None becomes null
+            serializable_map = {str(k): (v if v is not None else None) for k, v in self.science_to_bias_map.items()}
+            with open(map_outpath, "w", encoding="utf-8") as fh:
+                json.dump(serializable_map, fh, indent=2, ensure_ascii=False)
+            self.logger.info(f"Wrote science->bias mapping to {map_outpath}")
+        except Exception as e:
+            self.logger.error(f"Failed to write science->bias mapping to JSON: {e}")
+
+        return self.bias_configurations
 
 
     def make_master_bias(self):
@@ -767,11 +832,11 @@ class ReductionPipeline:
 
         self.determine_bias_configurations()
 
-        self.make_master_bias()
+        #self.make_master_bias()
 
 
-        self.determine_flat_configurations()
+        #self.determine_flat_configurations()
 
-        self.make_master_flats()
+        #self.make_master_flats()
 
-        self.reduce()
+        #self.reduce()
