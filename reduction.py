@@ -177,6 +177,29 @@ class ReductionPipeline:
         return self.setup_table
 
 
+
+    def load_setup_table(self):
+
+            try:
+                inpath = os.path.join(self.raw_data_path, "setup_table.json")
+                with open(inpath, "r", encoding="utf-8") as fh:
+                    loaded = json.load(fh)
+                setup_table = {}
+                for k, v in loaded.items():
+                    setup_table[int(k)] = {
+                        "window": v.get("window", "UNKNOWN"),
+                        "bin_x": v.get("bin_x", "UNKNOWN"),
+                        "bin_y": v.get("bin_y", "UNKNOWN"),
+                        "filter": v.get("filter", []),
+                        "files": v.get("files", []),
+                    }
+                self.setup_table = setup_table
+                self.logger.info(f"Loaded setup table from {inpath}")
+            except Exception as e:
+                self.logger.error(f"Failed to load setup table from JSON: {e}")
+                self.setup_table = {}
+
+
     def open_fits_file(self, filepath):
         """
         Open a FITS file and return the HDU list
@@ -366,6 +389,42 @@ class ReductionPipeline:
         return self.bias_configurations
 
 
+    def load_bias_configurations(self):
+
+        try:
+            inpath = os.path.join(self.raw_data_path, "bias_configurations.json")
+            with open(inpath, "r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            bias_configurations = {}
+            for k, v in loaded.items():
+                bias_configurations[int(k)] = {
+                    "window": v.get("window", "UNKNOWN"),
+                    "bin_x": v.get("bin_x", "UNKNOWN"),
+                    "bin_y": v.get("bin_y", "UNKNOWN"),
+                    "files": v.get("files", []),
+                }
+            self.bias_configurations = bias_configurations
+            self.logger.info(f"Loaded bias configurations from {inpath}")
+        except Exception as e:
+            self.logger.error(f"Failed to load bias configurations from JSON: {e}")
+            self.bias_configurations = {}
+
+
+    def load_science_to_bias_map(self):
+
+        try:
+            inpath = os.path.join(self.raw_data_path, "science_to_bias_map.json")
+            with open(inpath, "r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            science_to_bias_map = {}
+            for k, v in loaded.items():
+                science_to_bias_map[int(k)] = v if v is not None else None
+            self.science_to_bias_map = science_to_bias_map
+            self.logger.info(f"Loaded science->bias mapping from {inpath}")
+        except Exception as e:
+            self.logger.error(f"Failed to load science->bias mapping from JSON: {e}")
+            self.science_to_bias_map = {}
+
     def make_master_bias(self):
         
         self.master_biases = {}
@@ -526,6 +585,33 @@ class ReductionPipeline:
                     self.logger.error(f"Failed to write master bias {key} to disk: {e}")
 
 
+    def load_master_biases(self):
+
+        self.master_biases = {}
+
+        try:
+            master_bias_dir = os.path.join(self.raw_data_path, "master_biases")
+            if not os.path.isdir(master_bias_dir):
+                self.logger.warning(f"Master bias directory {master_bias_dir} does not exist")
+                return
+
+            for filename in os.listdir(master_bias_dir):
+                if not filename.lower().endswith((".fits", ".fit", ".fts")):
+                    continue
+                filepath = os.path.join(master_bias_dir, filename)
+                hdul = self.open_fits_file(filepath)
+                if hdul is None:
+                    self.logger.warning(f"Could not open master bias file {filepath}, skipping")
+                    continue
+                data = hdul[0].data
+                header = hdul[0].header
+                key_str = filename.replace("master_bias_", "").replace(".fits", "")
+                self.master_biases[key_str] = CCDData(data, unit=u.adu, header=header)
+                self.logger.info(f"Loaded master bias from {filepath} with key {key_str}")
+        except Exception as e:
+            self.logger.error(f"Failed to load master biases from disk: {e}")
+
+
     def determine_flat_configurations(self):
 
         if not getattr(self, "setup_table", None):
@@ -681,6 +767,44 @@ class ReductionPipeline:
         return self.flat_configurations
 
 
+    def load_flat_configurations(self):
+        
+        try:
+            inpath = os.path.join(self.raw_data_path, "flat_configurations.json")
+            with open(inpath, "r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            flat_configurations = {}
+            for k, v in loaded.items():
+                flat_configurations[int(k)] = {
+                    "window": v.get("window", "UNKNOWN"),
+                    "bin_x": v.get("bin_x", "UNKNOWN"),
+                    "bin_y": v.get("bin_y", "UNKNOWN"),
+                    "filter": v.get("filter", []),
+                    "files": v.get("files", []),
+                }
+            self.flat_configurations = flat_configurations
+            self.logger.info(f"Loaded flat configurations from {inpath}")
+        except Exception as e:
+            self.logger.error(f"Failed to load flat configurations from JSON: {e}")
+            self.flat_configurations = {}
+
+
+    def load_science_to_flat_map(self):
+
+        try:
+            inpath = os.path.join(self.raw_data_path, "science_to_flat_map.json")
+            with open(inpath, "r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            science_to_flat_map = {}
+            for k, v in loaded.items():
+                science_to_flat_map[int(k)] = v if v is not None else None
+            self.science_to_flat_map = science_to_flat_map
+            self.logger.info(f"Loaded science->flat mapping from {inpath}")
+        except Exception as e:
+            self.logger.error(f"Failed to load science->flat mapping from JSON: {e}")
+            self.science_to_flat_map = {}
+
+
     def make_master_flats(self):
 
         self.master_flats = {}
@@ -706,9 +830,18 @@ class ReductionPipeline:
                 combiner = Combiner(master_flat)
                 combined_median = combiner.median_combine()
 
-                #TODO: use the configuration mapping here later
-                bias_frame = self.master_biases.get(str((configuration.get("window"), configuration.get("bin_x"), configuration.get("bin_y"))))
-                bad_pixel_mask = self.bad_pixel_masks.get(str((configuration.get("window"), configuration.get("bin_x"), configuration.get("bin_y"))))
+                # choose bias using science->flat and science->bias mappings:
+                bias_frame = None
+                bad_pixel_mask = None
+
+                print(self.science_to_flat_map)
+
+                exit()
+
+                #TODO: for debugging:
+                if bias_frame is None:
+                    self.logger.error("NO BIAS FRAME - ABORTING")
+                    exit(-1)
 
                 
                 masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask) if bias_frame is not None and bad_pixel_mask is not None else None
@@ -986,15 +1119,27 @@ class ReductionPipeline:
 
     def run_pipeline(self):
 
-        self.sort_data()
+        #self.sort_data()
 
-        self.create_setup_table()
+        #self.create_setup_table()
 
-        self.determine_bias_configurations()
+        self.load_setup_table()
 
-        self.make_master_bias()
+        #self.determine_bias_configurations()
 
-        self.determine_flat_configurations()
+        self.load_bias_configurations()
+
+        self.load_science_to_bias_map()
+
+        #self.make_master_bias()
+
+        self.load_master_biases()
+
+        #self.determine_flat_configurations()
+
+        self.load_flat_configurations()
+
+        self.load_science_to_flat_map()
 
         self.make_master_flats()
 
