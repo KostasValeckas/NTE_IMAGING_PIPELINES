@@ -585,6 +585,41 @@ class ReductionPipeline:
                     self.logger.error(f"Failed to write master bias {key} to disk: {e}")
 
 
+                # save bad pixel mask to disk
+                try:
+                    if bad_pixel_mask is None:
+                        self.logger.warning(f"No bad pixel mask for bias config {key}; skipping write")
+                    else:
+                        bpm_dir = os.path.join(self.raw_data_path, "bad_pixel_masks")
+                        os.makedirs(bpm_dir, exist_ok=True)
+                        outpath_bpm = os.path.join(bpm_dir, f"bad_pixel_mask_{key:03d}.fits")
+                        # FITS doesn't always like boolean arrays; store as uint8 (0/1)
+                        mask_to_write = (bad_pixel_mask.astype(np.uint8))
+                        
+                        # Handle header properly - convert OrderedDict to fits.Header if needed
+                        if hasattr(combined_median, "header") and combined_median.header is not None:
+                            if isinstance(combined_median.header, fits.Header):
+                                # Already a FITS header, just copy it
+                                header = combined_median.header.copy()
+                            else:
+                                # Convert OrderedDict or other dict-like object to FITS Header
+                                header = fits.Header()
+                                try:
+                                    for hkey, hvalue in combined_median.header.items():
+                                        header[hkey] = hvalue
+                                except Exception as header_error:
+                                    # Skip problematic header entries
+                                    self.logger.warning(f"Could not add header key {hkey}={hvalue}: {header_error}")
+                        else:
+                            # Create new header if none exists
+                            header = fits.Header()
+                        
+                        fits.PrimaryHDU(mask_to_write, header=header).writeto(outpath_bpm, overwrite=True)
+                        self.logger.info(f"Wrote bad pixel mask for bias config {key} to {outpath_bpm}")
+                except Exception as e:
+                    self.logger.error(f"Failed to write bad pixel mask for bias config {key} to disk: {e}")
+
+
     def load_master_biases(self):
 
         self.master_biases = {}
@@ -610,6 +645,41 @@ class ReductionPipeline:
                 self.logger.info(f"Loaded master bias from {filepath} with key {key_str}")
         except Exception as e:
             self.logger.error(f"Failed to load master biases from disk: {e}")
+
+
+    def load_bad_pixel_masks(self):
+
+        self.bad_pixel_masks = {}
+
+        try:
+            bpm_dir = os.path.join(self.raw_data_path, "bad_pixel_masks")
+            if not os.path.isdir(bpm_dir):
+                self.logger.warning(f"Bad pixel mask directory {bpm_dir} does not exist")
+                return
+
+            for filename in os.listdir(bpm_dir):
+                if not filename.lower().endswith((".fits", ".fit", ".fts")):
+                    continue
+                filepath = os.path.join(bpm_dir, filename)
+                hdul = self.open_fits_file(filepath)
+                if hdul is None:
+                    self.logger.warning(f"Could not open bad pixel mask file {filepath}, skipping")
+                    continue
+                data = hdul[0].data.astype(bool)  # ensure boolean mask
+                header = hdul[0].header
+                # Extract the key properly - remove prefix and suffix, then convert to int then to str
+                key_part = filename.replace("bad_pixel_mask_", "").replace(".fits", "")
+                try:
+                    # Convert to int first to handle zero-padding, then back to str for consistency with storage
+                    key_int = int(key_part)
+                    key_str = str(key_int)
+                    self.bad_pixel_masks[key_str] = data
+                    self.logger.info(f"Loaded bad pixel mask from {filepath} with key {key_str}")
+                except ValueError as e:
+                    self.logger.warning(f"Could not parse key from filename {filename}: {e}")
+                    continue
+        except Exception as e:
+            self.logger.error(f"Failed to load bad pixel masks from disk: {e}")
 
 
     def determine_flat_configurations(self):
@@ -834,152 +904,186 @@ class ReductionPipeline:
                 bias_frame = None
                 bad_pixel_mask = None
 
-                print(self.science_to_flat_map)
 
-                exit()
+                science_conf = self.science_to_flat_map.get(key)
+                bias_conf_idx = self.science_to_bias_map.get(science_conf)
+
+                if bias_conf_idx is None:
+                    continue
+
+                bias_frame = self.master_biases.get(str(bias_conf_idx))
+                bad_pixel_mask = self.bad_pixel_masks.get(str(bias_conf_idx))
+
+                print(bad_pixel_mask)
+
+
+                if bad_pixel_mask is None:
+                    self.logger.error(f"No bad pixel mask found for bias config idx {bias_conf_idx} used in flat config {key}")
+                    exit(-1)
+
+
+                masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask)
 
                 #TODO: for debugging:
                 if bias_frame is None:
                     self.logger.error("NO BIAS FRAME - ABORTING")
                     exit(-1)
 
-                
-                masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask) if bias_frame is not None and bad_pixel_mask is not None else None
+                plt.imshow(masked_bias, origin="lower", cmap="gray")
+                plt.title(f"Bias frame for bias config idx {bias_conf_idx} used in flat config {key}")
+                plt.colorbar()
+                plt.show()
 
-                masked_flat = np.ma.masked_array(combined_median.data, mask=bad_pixel_mask) if bad_pixel_mask is not None else None
+                masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask) 
 
-                bias_subtracted_flat = masked_flat - masked_bias if masked_flat is not None and masked_bias is not None else None
+                masked_flat = np.ma.masked_array(combined_median.data, mask=bad_pixel_mask) 
 
-                # choose the array to work on: bias-subtracted flat if available, otherwise the combined median
-                work_arr = None
-                if bias_subtracted_flat is not None:
-                    work_arr = np.asarray(bias_subtracted_flat)
-                else:
-                    work_arr = np.asarray(combined_median.data)
+                bias_subtracted_flat = masked_flat - masked_bias
 
+                work_arr = np.asarray(bias_subtracted_flat)
                 finite_mask = np.isfinite(work_arr)
-                if not np.any(finite_mask):
-                    self.logger.warning("No finite pixels in combined flat; skipping masking and histogram")
-                    bad_pixel_mask = ~finite_mask
-                    master_flat = CCDData(work_arr, unit=u.adu, header=combined_median.header)
-                    self.master_flats[key] = master_flat
-                    self.bad_pixel_masks[str((configuration.get("window"), configuration.get("bin_x"), configuration.get("bin_y")))] = bad_pixel_mask
-                else:
-                    vals = work_arr[finite_mask].ravel()
-                    median_val = float(np.median(vals))
 
-                    # use ±0.2 * median on a copy to estimate sigma (robust against outliers)
-                    if median_val == 0.0:
-                        tol_small = 1e-6
-                        lower_small = -tol_small
-                        upper_small = tol_small
-                    else:
-                        delta_small = 0.2 * abs(median_val)
-                        lower_small = median_val - delta_small
-                        upper_small = median_val + delta_small
+                vals = work_arr[finite_mask].ravel()
+                median_val = float(np.median(vals))
 
-                    self.logger.info(f"Master flat initial median: {median_val:.3f}, ±0.2*median = [{lower_small:.3f}, {upper_small:.3f}]")
+                delta_small = 0.2 * abs(median_val)
+                lower_small = median_val - delta_small
+                upper_small = median_val + delta_small
 
-                    non_finite = ~finite_mask
-                    mask_small = non_finite | (work_arr < lower_small) | (work_arr > upper_small)
-                    data_copy = work_arr.copy()
-                    masked_copy = np.ma.masked_array(data_copy, mask=mask_small)
+                non_finite = ~finite_mask
+                mask_small = non_finite | (work_arr < lower_small) | (work_arr > upper_small)
+                data_copy = work_arr.copy()
+                masked_copy = np.ma.masked_array(data_copy, mask=mask_small)
 
-                    kept_vals_small = masked_copy.compressed()
-                    if kept_vals_small.size == 0:
-                        self.logger.warning("No pixels remain after ±0.2*median masking on copy; using all finite pixels to estimate sigma")
-                        kept_vals_small = vals
+                kept_vals_small = masked_copy.compressed()
 
-                    try:
-                        sigma_est = float(np.std(kept_vals_small, ddof=1)) if kept_vals_small.size > 1 else float(np.std(kept_vals_small, ddof=0))
-                    except Exception:
-                        sigma_est = float(np.std(kept_vals_small, ddof=0))
+                try:
+                    sigma_est = float(np.std(kept_vals_small, ddof=1))
+                except Exception:
+                    sigma_est = float(np.std(kept_vals_small, ddof=0))
 
-                    if sigma_est == 0.0 or not np.isfinite(sigma_est):
-                        sigma_est = max(abs(median_val) * 0.01, 1e-6)
-                        self.logger.warning(f"Estimated sigma is zero or non-finite; using fallback sigma={sigma_est:.6g}")
+                try:
+                    fallback = max(abs(median_val) * 0.01, 1e-6)
+                except Exception:
+                    fallback = 1e-6
 
-                    self.logger.info(f"Estimated sigma from ±0.2*median-masked copy: {sigma_est:.3f}")
+                sigma_est = np.nan_to_num(sigma_est, nan=fallback)
 
-                    # mask original with median ± 5*sigma
-                    lower_5s = median_val - 5.0 * sigma_est
-                    upper_5s = median_val + 5.0 * sigma_est
-                    self.logger.info(f"Masking original combined flat with median ± 5*sigma = [{lower_5s:.3f}, {upper_5s:.3f}]")
+                mean_estimate = float(np.mean(kept_vals_small)) if kept_vals_small.size > 0 else median_val
 
-                    combined_mask = np.zeros_like(work_arr, dtype=bool)
-                    combined_mask |= non_finite
-                    out_of_range_5s = (work_arr < lower_5s) | (work_arr > upper_5s)
-                    combined_mask |= out_of_range_5s
-                    n_masked = int(np.count_nonzero(combined_mask))
-                    n_total = work_arr.size
-                    self.logger.info(f"Masked {n_masked}/{n_total} flat pixels outside median ± 5*sigma or non-finite")
+                lower_5s = median_val - 5.0 * sigma_est
+                upper_5s = median_val + 5.0 * sigma_est
 
-                    bad_pixel_mask = combined_mask.copy()
-                    masked_data_5s = np.ma.masked_array(work_arr, mask=bad_pixel_mask)
+                combined_mask = np.zeros_like(work_arr, dtype=bool)
+                combined_mask |= non_finite
+                out_of_range_5s = (work_arr < lower_5s) | (work_arr > upper_5s)
+                combined_mask |= out_of_range_5s
+                n_masked = int(np.count_nonzero(combined_mask))
+                n_total = work_arr.size
 
-                    # histogram for sigma estimation (from the ±0.2*median copy)
-                    if kept_vals_small.size == 0:
-                        self.logger.warning("No pixels available to plot histogram after ±0.2*median masking")
-                    else:
-                        if kept_vals_small.size > 200_000:
-                            idxs = np.random.choice(kept_vals_small.size, size=200_000, replace=False)
-                            vals_plot = kept_vals_small[idxs]
-                        else:
-                            vals_plot = kept_vals_small
+                bad_pixel_mask = combined_mask.copy()
+                masked_data_5s = np.ma.masked_array(work_arr, mask=bad_pixel_mask)
 
-                        plt.figure(figsize=(8, 5))
-                        plt.hist(vals_plot, bins=100, color="C0", alpha=0.8)
-                        plt.axvline(median_val, color="r", linestyle="-", linewidth=2, label=f"median = {median_val:.2f}")
-                        plt.axvline(lower_small, color="orange", linestyle="--", linewidth=1.5, label=f"±0.2·median bounds")
-                        plt.axvline(upper_small, color="orange", linestyle="--", linewidth=1.5)
-                        plt.axvline(lower_5s, color="magenta", linestyle=":", linewidth=2, label=f"-5σ = {lower_5s:.2f}")
-                        plt.axvline(upper_5s, color="magenta", linestyle=":", linewidth=2, label=f"+5σ = {upper_5s:.2f}")
-                        plt.title("Histogram used for sigma estimation (±0.2·median masked copy)")
-                        plt.xlabel("ADU")
-                        plt.ylabel("Counts")
-                        plt.legend(loc="upper right")
-                        span = upper_5s - lower_5s
-                        margin = span * 0.05 if span > 0 else max(abs(median_val) * 0.1, 1.0)
-                        plt.xlim(lower_5s - margin, upper_5s + margin)
-                        plt.tight_layout()
-                        plt.show()
+                mean = float(np.mean(masked_data_5s)) if masked_data_5s.size > 0 else median_val
 
-                    # show bad-pixel mask and masked image for inspection
-                    plt.figure(figsize=(6, 5))
-                    plt.imshow(bad_pixel_mask, origin="lower", cmap="gray")
-                    plt.title(f"Bad pixel mask (median ± 5σ) for flat config idx: {key}")
-                    plt.colorbar()
+                normalized_flat = combined_median.data / mean
+
+                normalized_flat_masked = np.ma.masked_array(normalized_flat, mask=bad_pixel_mask)
+
+                try:
+                    size_plot = min(kept_vals_small.size, 200_000)
+                    idxs = np.random.choice(kept_vals_small.size, size=size_plot, replace=False)
+                    vals_plot = kept_vals_small[idxs]
+                except Exception:
+                    vals_plot = kept_vals_small
+
+                try:
+                    plt.figure(figsize=(8, 5))
+                    plt.hist(vals_plot, bins=100, color="C0", alpha=0.8)
+                    plt.axvline(median_val, color="r", linestyle="-", linewidth=2, label=f"median = {median_val:.2f}")
+                    plt.axvline(lower_small, color="orange", linestyle="--", linewidth=1.5, label=f"±0.2·median bounds")
+                    plt.axvline(upper_small, color="orange", linestyle="--", linewidth=1.5)
+                    plt.axvline(lower_5s, color="magenta", linestyle=":", linewidth=2, label=f"-5σ = {lower_5s:.2f}")
+                    plt.axvline(upper_5s, color="magenta", linestyle=":", linewidth=2, label=f"+5σ = {upper_5s:.2f}")
+                    plt.title("Histogram used for sigma estimation (±0.2·median masked copy)")
+                    plt.xlabel("ADU")
+                    plt.ylabel("Counts")
+                    plt.legend(loc="upper right")
+                    span = upper_5s - lower_5s
+                    margin = span * 0.05 if span > 0 else max(abs(median_val) * 0.1, 1.0)
+                    plt.xlim(lower_5s - margin, upper_5s + margin)
+                    plt.tight_layout()
                     plt.show()
+                except Exception:
+                    pass
 
+                try:
                     plt.figure(figsize=(6, 5))
-                    plt.imshow(masked_data_5s, origin="lower", cmap="gray")
+                    plt.imshow(normalized_flat_masked, origin="lower", cmap="gray")
                     plt.title(f"Masked combined master flat (median ± 5σ) for config idx: {key}")
                     plt.colorbar()
                     plt.show()
+                except Exception:
+                    pass
 
-                    # normalize the master flat to median = 1.0 (using the same median_val)
-                    if median_val == 0.0:
-                        norm = 1.0
+
+                master_flat = CCDData(normalized_flat, unit=u.adu, header=combined_median.header)
+
+                self.master_flats[key] = master_flat
+                self.bad_pixel_masks[str(bias_conf_idx)] = bad_pixel_mask
+
+                try:
+                    outdir = os.path.join(self.raw_data_path, "master_flats")
+                    os.makedirs(outdir, exist_ok=True)
+                    outpath = os.path.join(outdir, f"master_flat_{key:03d}.fits")
+                    fits.PrimaryHDU(master_flat.data.astype(np.float32)).writeto(outpath, overwrite=True)
+                    self.logger.info(f"Wrote master flat {key} to {outpath}")
+                except Exception as e:
+                    self.logger.error(f"Failed to write master flat {key} to disk: {e}")
+
+
+                # write bad pixel mask for this flat's associated bias configuration
+                try:
+                    if bad_pixel_mask is None:
+                        self.logger.warning(f"No bad pixel mask to write for flat config {key}; skipping BPM write")
                     else:
-                        norm = median_val
+                        bpm_dir = os.path.join(self.raw_data_path, "bad_pixel_masks")
+                        os.makedirs(bpm_dir, exist_ok=True)
 
-                    master_flat_data = (work_arr / norm).astype(np.float32)
-                    master_flat = CCDData(master_flat_data, unit=u.adu, header=combined_median.header)
+                        # prefer using the bias configuration index for the mask filename when available,
+                        # otherwise fall back to the flat configuration key
+                        bpm_idx = bias_conf_idx if bias_conf_idx is not None else key
+                        if isinstance(bpm_idx, int):
+                            bpm_name = f"bad_pixel_mask_{bpm_idx:03d}.fits"
+                        else:
+                            # sanitize non-integer keys into a string safe for filenames
+                            safe = str(bpm_idx).replace(" ", "_").replace("/", "_")
+                            bpm_name = f"bad_pixel_mask_{safe}.fits"
 
-                    # store in memory keyed by the flat configuration index
-                    self.master_flats[key] = master_flat
-                    # also record bad pixel mask indexed by the configuration tuple (consistent with bias masks)
-                    self.bad_pixel_masks[str((configuration.get("window"), configuration.get("bin_x"), configuration.get("bin_y")))] = bad_pixel_mask
+                        outpath_bpm = os.path.join(bpm_dir, bpm_name)
 
-                    # write to disk
-                    try:
-                        outdir = os.path.join(self.raw_data_path, "master_flats")
-                        os.makedirs(outdir, exist_ok=True)
-                        outpath = os.path.join(outdir, f"master_flat_{key:03d}.fits")
-                        fits.PrimaryHDU(master_flat.data.astype(np.float32)).writeto(outpath, overwrite=True)
-                        self.logger.info(f"Wrote master flat {key} to {outpath}")
-                    except Exception as e:
-                        self.logger.error(f"Failed to write master flat {key} to disk: {e}")
+                        # FITS doesn't always like boolean arrays; store as uint8 (0/1)
+                        mask_to_write = bad_pixel_mask.astype(np.uint8)
+
+                        # build a FITS header from the combined median header if possible
+                        if hasattr(combined_median, "header") and combined_median.header is not None:
+                            if isinstance(combined_median.header, fits.Header):
+                                header = combined_median.header.copy()
+                            else:
+                                header = fits.Header()
+                                try:
+                                    for hkey, hvalue in combined_median.header.items():
+                                        header[hkey] = hvalue
+                                except Exception:
+                                    # ignore problematic header entries
+                                    pass
+                        else:
+                            header = fits.Header()
+
+                        fits.PrimaryHDU(mask_to_write, header=header).writeto(outpath_bpm, overwrite=True)
+                        self.logger.info(f"Wrote bad pixel mask for flat config {key} to {outpath_bpm}")
+                except Exception as e:
+                    self.logger.error(f"Failed to write bad pixel mask for flat config {key} to disk: {e}")
 
 
         
@@ -1119,28 +1223,37 @@ class ReductionPipeline:
 
     def run_pipeline(self):
 
-        #self.sort_data()
+        if False:
 
-        #self.create_setup_table()
+            self.sort_data()
 
-        self.load_setup_table()
+            self.create_setup_table()
 
-        #self.determine_bias_configurations()
+            self.determine_bias_configurations()
 
-        self.load_bias_configurations()
+            self.make_master_bias()
 
-        self.load_science_to_bias_map()
+            self.determine_flat_configurations()
 
-        #self.make_master_bias()
+            self.make_master_flats()
 
-        self.load_master_biases()
 
-        #self.determine_flat_configurations()
+        if True:
 
-        self.load_flat_configurations()
+            self.load_bias_configurations()
 
-        self.load_science_to_flat_map()
+            self.load_setup_table()
 
-        self.make_master_flats()
+            self.load_science_to_bias_map()
+
+            self.load_master_biases()
+
+            self.load_bad_pixel_masks()
+
+            self.load_flat_configurations()
+
+            self.load_science_to_flat_map()
+
+            self.make_master_flats()
 
         #self.reduce()
