@@ -10,6 +10,7 @@ import math
 from ccdproc import Combiner, CCDData
 from astropy import units as u
 import json
+import matplotlib
 
 
 class ReductionPipeline:
@@ -33,9 +34,10 @@ class ReductionPipeline:
         self.science_to_flat_map = {}
 
         self.master_biases = {}
-        self.bad_pixel_masks = {}
+        self.bad_pixel_masks_bias = {}
 
         self.master_flats = {}
+        self.bad_pixel_masks_flats = {}
 
     def sort_data(self):
 
@@ -428,7 +430,7 @@ class ReductionPipeline:
     def make_master_bias(self):
         
         self.master_biases = {}
-        self.bad_pixel_masks = {}
+        self.bad_pixel_masks_bias = {}
 
         for key, configuration in self.bias_configurations.items():
             self.logger.info(f"Processing bias configuration: {configuration}")
@@ -552,26 +554,26 @@ class ReductionPipeline:
                     margin = span * 0.05 if span > 0 else max(abs(median_val) * 0.1, 1.0)
                     plt.xlim(lower_5s - margin, upper_5s + margin)
                     plt.tight_layout()
-                    plt.show()
+                    if False: plt.show()
 
                 # show bad-pixel mask and masked image for visual inspection (3-sigma mask)
                 plt.figure(figsize=(6, 5))
                 plt.imshow(bad_pixel_mask, origin="lower", cmap="gray")
                 plt.title(f"Bad pixel mask (median ± 3σ) for bias config: {configuration}")
                 plt.colorbar()
-                plt.show()
+                if False: plt.show()
 
                 plt.figure(figsize=(6, 5))
                 plt.imshow(masked_data_5s, origin="lower", cmap="gray")
                 plt.title(f"Masked combined master bias (median ± 5σ) for config: {configuration}")
                 plt.colorbar()
-                plt.show()
+                if False: plt.show()
 
 
                 # store results for this configuration
                 master_bias = CCDData(data, unit=u.adu, header=combined_median.header)
                 self.master_biases[str(key)] = master_bias
-                self.bad_pixel_masks[str(key)] = bad_pixel_mask
+                self.bad_pixel_masks_bias[str(key)] = bad_pixel_mask
 
 
                 try:
@@ -590,9 +592,9 @@ class ReductionPipeline:
                     if bad_pixel_mask is None:
                         self.logger.warning(f"No bad pixel mask for bias config {key}; skipping write")
                     else:
-                        bpm_dir = os.path.join(self.raw_data_path, "bad_pixel_masks")
+                        bpm_dir = os.path.join(self.raw_data_path, "master_biases", "bad_pixel_masks")
                         os.makedirs(bpm_dir, exist_ok=True)
-                        outpath_bpm = os.path.join(bpm_dir, f"bad_pixel_mask_{key:03d}.fits")
+                        outpath_bpm = os.path.join(bpm_dir, f"bad_pixel_mask_bias_{key:03d}.fits")
                         # FITS doesn't always like boolean arrays; store as uint8 (0/1)
                         mask_to_write = (bad_pixel_mask.astype(np.uint8))
                         
@@ -655,12 +657,12 @@ class ReductionPipeline:
             self.logger.error(f"Failed to load master biases from disk: {e}")
 
 
-    def load_bad_pixel_masks(self):
+    def load_bad_pixel_masks_bias(self):
 
-        self.bad_pixel_masks = {}
+        self.bad_pixel_masks_bias = {}
 
         try:
-            bpm_dir = os.path.join(self.raw_data_path, "bad_pixel_masks")
+            bpm_dir = os.path.join(self.raw_data_path, "master_biases", "bad_pixel_masks")
             if not os.path.isdir(bpm_dir):
                 self.logger.warning(f"Bad pixel mask directory {bpm_dir} does not exist")
                 return
@@ -681,7 +683,42 @@ class ReductionPipeline:
                     # Convert to int first to handle zero-padding, then back to str for consistency with storage
                     key_int = int(key_part)
                     key_str = str(key_int)
-                    self.bad_pixel_masks[key_str] = data
+                    self.bad_pixel_masks_bias[key_str] = data
+                    self.logger.info(f"Loaded bad pixel mask from {filepath} with key {key_str}")
+                except ValueError as e:
+                    self.logger.warning(f"Could not parse key from filename {filename}: {e}")
+                    continue
+        except Exception as e:
+            self.logger.error(f"Failed to load bad pixel masks from disk: {e}")
+
+
+    def load_bad_pixel_masks_flats(self):
+
+        self.bad_pixel_masks_flats = {}
+
+        try:
+            bpm_dir = os.path.join(self.raw_data_path, "master_biases", "bad_pixel_masks")
+            if not os.path.isdir(bpm_dir):
+                self.logger.warning(f"Bad pixel mask directory {bpm_dir} does not exist")
+                return
+
+            for filename in os.listdir(bpm_dir):
+                if not filename.lower().endswith((".fits", ".fit", ".fts")):
+                    continue
+                filepath = os.path.join(bpm_dir, filename)
+                hdul = self.open_fits_file(filepath)
+                if hdul is None:
+                    self.logger.warning(f"Could not open bad pixel mask file {filepath}, skipping")
+                    continue
+                data = hdul[0].data.astype(bool)  # ensure boolean mask
+                header = hdul[0].header
+                # Extract the key properly - remove prefix and suffix, then convert to int then to str
+                key_part = filename.replace("bad_pixel_mask_bias_", "").replace(".fits", "")
+                try:
+                    # Convert to int first to handle zero-padding, then back to str for consistency with storage
+                    key_int = int(key_part)
+                    key_str = str(key_int)
+                    self.bad_pixel_masks_flats[key_str] = data
                     self.logger.info(f"Loaded bad pixel mask from {filepath} with key {key_str}")
                 except ValueError as e:
                     self.logger.warning(f"Could not parse key from filename {filename}: {e}")
@@ -920,12 +957,11 @@ class ReductionPipeline:
                     continue
 
                 bias_frame = self.master_biases.get(str(bias_conf_idx))
-                bad_pixel_mask = self.bad_pixel_masks.get(str(bias_conf_idx))
-
-                print(bad_pixel_mask)
+                bad_pixel_mask_bias = self.bad_pixel_masks_bias.get(str(bias_conf_idx))
 
 
-                if bad_pixel_mask is None:
+
+                if bad_pixel_mask_bias is None:
                     self.logger.error(f"No bad pixel mask found for bias config idx {bias_conf_idx} used in flat config {key}")
                     exit(-1)
 
@@ -940,7 +976,7 @@ class ReductionPipeline:
                 plt.imshow(masked_bias, origin="lower", cmap="gray")
                 plt.title(f"Bias frame for bias config idx {bias_conf_idx} used in flat config {key}")
                 plt.colorbar()
-                plt.show()
+                if False: plt.show()
 
                 masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask) 
 
@@ -989,14 +1025,14 @@ class ReductionPipeline:
                 n_masked = int(np.count_nonzero(combined_mask))
                 n_total = work_arr.size
 
-                bad_pixel_mask = combined_mask.copy()
-                masked_data_5s = np.ma.masked_array(work_arr, mask=bad_pixel_mask)
+                bad_pixel_mask_flat = combined_mask.copy()
+                masked_data_5s = np.ma.masked_array(work_arr, mask=bad_pixel_mask_flat)
 
                 mean = float(np.mean(masked_data_5s)) if masked_data_5s.size > 0 else median_val
 
                 normalized_flat = combined_median.data / mean
 
-                normalized_flat_masked = np.ma.masked_array(normalized_flat, mask=bad_pixel_mask)
+                normalized_flat_masked = np.ma.masked_array(normalized_flat, mask=bad_pixel_mask_flat)
 
                 try:
                     size_plot = min(kept_vals_small.size, 200_000)
@@ -1021,7 +1057,7 @@ class ReductionPipeline:
                     margin = span * 0.05 if span > 0 else max(abs(median_val) * 0.1, 1.0)
                     plt.xlim(lower_5s - margin, upper_5s + margin)
                     plt.tight_layout()
-                    plt.show()
+                    if False: plt.show()
                 except Exception:
                     pass
 
@@ -1030,7 +1066,7 @@ class ReductionPipeline:
                     plt.imshow(normalized_flat_masked, origin="lower", cmap="gray")
                     plt.title(f"Masked combined master flat (median ± 5σ) for config idx: {key}")
                     plt.colorbar()
-                    plt.show()
+                    if False: plt.show()
                 except Exception:
                     pass
 
@@ -1038,7 +1074,7 @@ class ReductionPipeline:
                 master_flat = CCDData(normalized_flat, unit=u.adu, header=combined_median.header)
 
                 self.master_flats[key] = master_flat
-                self.bad_pixel_masks[str(bias_conf_idx)] = bad_pixel_mask
+                self.bad_pixel_masks_flats[str(bias_conf_idx)] = bad_pixel_mask_flat
 
                 try:
                     outdir = os.path.join(self.raw_data_path, "master_flats")
@@ -1050,28 +1086,27 @@ class ReductionPipeline:
                     self.logger.error(f"Failed to write master flat {key} to disk: {e}")
 
 
-                # write bad pixel mask for this flat's associated bias configuration
+                # write bad pixel mask for this flat configuration
                 try:
-                    if bad_pixel_mask is None:
+                    if bad_pixel_mask_flat is None:
                         self.logger.warning(f"No bad pixel mask to write for flat config {key}; skipping BPM write")
                     else:
-                        bpm_dir = os.path.join(self.raw_data_path, "bad_pixel_masks")
+                        bpm_dir = os.path.join(self.raw_data_path, "master_flats", "bad_pixel_masks")
                         os.makedirs(bpm_dir, exist_ok=True)
 
-                        # prefer using the bias configuration index for the mask filename when available,
-                        # otherwise fall back to the flat configuration key
-                        bpm_idx = bias_conf_idx if bias_conf_idx is not None else key
+                        # use the flat configuration index for the mask filename
+                        bpm_idx = key
                         if isinstance(bpm_idx, int):
-                            bpm_name = f"bad_pixel_mask_{bpm_idx:03d}.fits"
+                            bpm_name = f"bad_pixel_mask_flat_{bpm_idx:03d}.fits"
                         else:
                             # sanitize non-integer keys into a string safe for filenames
                             safe = str(bpm_idx).replace(" ", "_").replace("/", "_")
-                            bpm_name = f"bad_pixel_mask_{safe}.fits"
+                            bpm_name = f"bad_pixel_mask_flat_{safe}.fits"
 
                         outpath_bpm = os.path.join(bpm_dir, bpm_name)
 
                         # FITS doesn't always like boolean arrays; store as uint8 (0/1)
-                        mask_to_write = bad_pixel_mask.astype(np.uint8)
+                        mask_to_write = bad_pixel_mask_flat.astype(np.uint8)
 
                         # build a FITS header from the combined median header if possible
                         if hasattr(combined_median, "header") and combined_median.header is not None:
@@ -1128,6 +1163,43 @@ class ReductionPipeline:
             self.logger.error(f"Failed to load master flats from disk: {e}")
 
 
+    def load_bad_pixel_masks_flats(self):
+
+        self.bad_pixel_masks_flats = {}
+
+        try:
+            bpm_dir = os.path.join(self.raw_data_path, "master_flats", "bad_pixel_masks")
+            if not os.path.isdir(bpm_dir):
+                self.logger.warning(f"Bad pixel mask directory {bpm_dir} does not exist")
+                return
+
+            for filename in os.listdir(bpm_dir):
+                if not filename.lower().endswith((".fits", ".fit", ".fts")):
+                    continue
+                filepath = os.path.join(bpm_dir, filename)
+                hdul = self.open_fits_file(filepath)
+                if hdul is None:
+                    self.logger.warning(f"Could not open bad pixel mask file {filepath}, skipping")
+                    continue
+                data = hdul[0].data.astype(bool)  # ensure boolean mask
+                header = hdul[0].header
+                # Extract the key properly - remove prefix and suffix, then convert to int then to str
+                key_part = filename.replace("bad_pixel_mask_flat_", "").replace(".fits", "")
+                print(f"{filename} -> key part: {key_part}")
+                try:
+                    # Convert to int first to handle zero-padding, then back to str for consistency with storage
+                    key_int = int(key_part)
+                    key_str = str(key_int)
+                    self.bad_pixel_masks_flats[key_str] = data
+                    self.logger.info(f"Loaded bad pixel mask from {filepath} with key {key_str}")
+                except ValueError as e:
+                    self.logger.warning(f"Could not parse key from filename {filename}: {e}")
+                    continue
+        except Exception as e:
+            self.logger.error(f"Failed to load bad pixel masks from disk: {e}")
+
+
+
         
     def reduce(self):
 
@@ -1139,7 +1211,8 @@ class ReductionPipeline:
 
             bias_frame = self.master_biases.get(str(self.science_to_bias_map.get(key)))
             flat_frame = self.master_flats.get(str(self.science_to_flat_map.get(key)))
-            bad_pixel_mask = self.bad_pixel_masks.get(str(self.science_to_bias_map.get(key)))
+            bad_pixel_mask = self.bad_pixel_masks_flats.get(str(self.science_to_flat_map.get(key)))
+
 
             for file in configuration.get("files", []):
                 self.logger.info(f"Reducing science file {file} with setup config idx {key}")
@@ -1166,14 +1239,25 @@ class ReductionPipeline:
                 masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask)
                 masked_flat = np.ma.masked_array(flat_frame.data, mask=bad_pixel_mask)
 
-                bias_subtracted = masked_science - masked_bias
-                flat_corrected = bias_subtracted / masked_flat
+                bias_subtracted = masked_science - masked_bias 
+                flat_corrected = bias_subtracted / masked_flat 
 
 
-                plt.imshow(flat_corrected/np.mean(flat_corrected), origin="lower", cmap="gray", vmin=0.5, vmax=1.5)
-                plt.title(f"{file} reduced with science config idx {key}")
-                plt.colorbar()
+                fig, ax = plt.subplots(1, 2, figsize=(18, 6))
+
+                ax[0].imshow(science_data, origin="lower", cmap="gray", vmin = np.percentile(science_data[~bad_pixel_mask], 5), vmax=np.percentile(science_data[~bad_pixel_mask], 95))
+                ax[0].set_title(f"Original science frame for config idx {key}")
+                fig.colorbar(ax[0].images[0], ax=ax[0])
+
+
+                ax[1].imshow(flat_corrected, origin="lower", cmap="gray", vmin = np.percentile(flat_corrected.compressed(), 5), vmax=np.percentile(flat_corrected.compressed(), 95))
+                ax[1].set_title(f"Reduced science frame for config idx {key}")
+                fig.colorbar(ax[1].images[0], ax=ax[1])
+
+
+
                 plt.show()
+
 
 
     def run_pipeline(self):
@@ -1192,8 +1276,6 @@ class ReductionPipeline:
 
             self.make_master_flats()
 
-            self.make_master_flats()
-
 
         if True:
 
@@ -1205,11 +1287,13 @@ class ReductionPipeline:
 
             self.load_master_biases()
 
-            self.load_bad_pixel_masks()
+            self.load_bad_pixel_masks_bias()
 
             self.load_flat_configurations()
 
             self.load_science_to_flat_map()
+
+            self.load_bad_pixel_masks_flats()
 
             self.load_master_flats()
 
