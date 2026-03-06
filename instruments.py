@@ -79,3 +79,43 @@ class Instrument:
         # Base implementation: intended to be overridden by subclasses.
         # Return None to indicate "no determination" at this level.
         return None
+
+
+    def get_header_value(self, hdul, keyword_tuple) -> Optional[str]:
+        """Helper method to extract header value based on provided keyword tuple"""
+        if keyword_tuple is None or len(keyword_tuple) != 2:
+            return None
+        
+        keys, hdu_index = keyword_tuple
+        if not isinstance(keys, list):
+            keys = [keys]
+        
+        for key in keys:
+            try:
+                value = hdul[hdu_index].header[key]
+                if value is not None:
+                    return value
+            except KeyError:
+                continue
+        
+        return None
+    
+
+    def get_header_values(self, hdul, keyword_tuple) -> Optional[dict[str, Optional[str]]]:
+        """Helper method to extract multiple header values based on provided keyword tuple"""
+        if keyword_tuple is None or len(keyword_tuple) != 2:
+            return None
+        
+        keys, hdu_index = keyword_tuple
+        if not isinstance(keys, list):
+            keys = [keys]
+        
+        values = []
+        for key in keys:
+            try:
+                value = hdul[hdu_index].header[key]
+                values.append(value)
+            except KeyError:
+                values.append(None)
+
+        return values

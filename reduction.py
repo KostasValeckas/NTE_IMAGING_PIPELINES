@@ -108,29 +108,11 @@ class ReductionPipeline:
                 self.logger.warning(f"Could not open {file}, skipping")
                 continue
 
-            window_header_extension = self.instrument.detector.window_keyword[1]
-            bin_x_header_extension = self.instrument.detector.bin_x_keyword[1]
-            bin_y_header_extension = self.instrument.detector.bin_y_keyword[1]
-            filter_header_extension = self.instrument.filter_keyword[1]
+            window = self.instrument.get_header_value(hdul, self.instrument.detector.window_keyword) or "UNKNOWN"
+            bin_x = self.instrument.get_header_value(hdul, self.instrument.detector.bin_x_keyword) or "UNKNOWN"
+            bin_y = self.instrument.get_header_value(hdul, self.instrument.detector.bin_y_keyword) or "UNKNOWN"
 
-            window_keyword = self.instrument.detector.window_keyword[0]
-            bin_x_keyword = self.instrument.detector.bin_x_keyword[0]
-            bin_y_keyword = self.instrument.detector.bin_y_keyword[0]
-            filter_keyword = self.instrument.filter_keyword[0]
-
-            window = hdul[window_header_extension].header.get(window_keyword, "UNKNOWN")
-            bin_x = hdul[bin_x_header_extension].header.get(bin_x_keyword, "UNKNOWN")
-            bin_y = hdul[bin_y_header_extension].header.get(bin_y_keyword, "UNKNOWN")
-
-            header = hdul[filter_header_extension].header
-            filter_names = []
-            if isinstance(filter_keyword, (list, tuple)):
-                for key in filter_keyword:
-                    val = header.get(key)
-                    filter_names.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
-            else:
-                val = header.get(filter_keyword)
-                filter_names.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
+            filter_names = self.instrument.get_header_values(hdul, self.instrument.filter_keyword) or ["UNKNOWN"]
 
             filter_name = filter_names
             key = (window, bin_x, bin_y, tuple(filter_name))
@@ -319,17 +301,25 @@ class ReductionPipeline:
                 continue
 
             try:
-                window_header_extension = self.instrument.detector.window_keyword[1]
-                bin_x_header_extension = self.instrument.detector.bin_x_keyword[1]
-                bin_y_header_extension = self.instrument.detector.bin_y_keyword[1]
+                # Use the instrument helper to get header values (handles string, tuple or list specs)
+                try:
+                    w = self.instrument.get_header_value(hdul, self.instrument.detector.window_keyword) or "UNKNOWN"
+                except Exception as e:
+                    self.logger.warning(f"Failed to read window keyword using get_header_value for bias file {bf}: {e}")
+                    w = "UNKNOWN"
 
-                window_keyword = self.instrument.detector.window_keyword[0]
-                bin_x_keyword = self.instrument.detector.bin_x_keyword[0]
-                bin_y_keyword = self.instrument.detector.bin_y_keyword[0]
+                try:
+                    bx = self.instrument.get_header_value(hdul, self.instrument.detector.bin_x_keyword) or "UNKNOWN"
+                except Exception as e:
+                    self.logger.warning(f"Failed to read bin_x keyword using get_header_value for bias file {bf}: {e}")
+                    bx = "UNKNOWN"
 
-                w = hdul[window_header_extension].header.get(window_keyword, "UNKNOWN")
-                bx = hdul[bin_x_header_extension].header.get(bin_x_keyword, "UNKNOWN")
-                by = hdul[bin_y_header_extension].header.get(bin_y_keyword, "UNKNOWN")
+                try:
+                    by = self.instrument.get_header_value(hdul, self.instrument.detector.bin_y_keyword) or "UNKNOWN"
+                except Exception as e:
+                    self.logger.warning(f"Failed to read bin_y keyword using get_header_value for bias file {bf}: {e}")
+                    by = "UNKNOWN"
+
             except Exception as e:
                 self.logger.warning(f"Failed to read header keywords from bias file {bf}: {e}")
                 w, bx, by = "UNKNOWN", "UNKNOWN", "UNKNOWN"
@@ -775,39 +765,31 @@ class ReductionPipeline:
                 self.logger.warning(f"Could not open flat file {ff}, skipping")
                 continue
 
+
+            # Use the instrument helper to read header values robustly
             try:
-                window_header_extension = self.instrument.detector.window_keyword[1]
-                bin_x_header_extension = self.instrument.detector.bin_x_keyword[1]
-                bin_y_header_extension = self.instrument.detector.bin_y_keyword[1]
-                filter_header_extension = self.instrument.filter_keyword[1]
-
-                window_keyword = self.instrument.detector.window_keyword[0]
-                bin_x_keyword = self.instrument.detector.bin_x_keyword[0]
-                bin_y_keyword = self.instrument.detector.bin_y_keyword[0]
-                filter_keyword_spec = self.instrument.filter_keyword[0]
-
-                w = hdul[window_header_extension].header.get(window_keyword, "UNKNOWN")
-                bx = hdul[bin_x_header_extension].header.get(bin_x_keyword, "UNKNOWN")
-                by = hdul[bin_y_header_extension].header.get(bin_y_keyword, "UNKNOWN")
+                w = self.instrument.get_header_value(hdul, self.instrument.detector.window_keyword) or "UNKNOWN"
             except Exception as e:
-                self.logger.warning(f"Failed to read header keywords from flat file {ff}: {e}")
-                w, bx, by = "UNKNOWN", "UNKNOWN", "UNKNOWN"
-                filter_keyword_spec = self.instrument.filter_keyword[0]
-                filter_header_extension = self.instrument.filter_keyword[1]
-
-            # Read filter(s) robustly (single key or list/tuple of keys)
-            filter_names = []
+                self.logger.warning(f"Failed to read window keyword using get_header_value for flat file {ff}: {e}")
+                w = "UNKNOWN"
             try:
-                if isinstance(filter_keyword_spec, (list, tuple)):
-                    for key in filter_keyword_spec:
-                        val = hdul[filter_header_extension].header.get(key)
-                        filter_names.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
-                else:
-                    val = hdul[filter_header_extension].header.get(filter_keyword_spec)
-                    filter_names.append(str(val).strip() if val not in (None, "") else "UNKNOWN")
+                bx = self.instrument.get_header_value(hdul, self.instrument.detector.bin_x_keyword) or "UNKNOWN"
             except Exception as e:
-                self.logger.warning(f"Failed to read filter keywords from flat file {ff}: {e}")
+                self.logger.warning(f"Failed to read bin_x keyword using get_header_value for flat file {ff}: {e}")
+                bx = "UNKNOWN"
+            try:
+                by = self.instrument.get_header_value(hdul, self.instrument.detector.bin_y_keyword) or "UNKNOWN"
+            except Exception as e:
+                self.logger.warning(f"Failed to read bin_y keyword using get_header_value for flat file {ff}: {e}")
+                by = "UNKNOWN"
+
+            # Read filter(s) using the instrument helper which handles single or multiple keywords
+            try:
+                filter_names = self.instrument.get_header_values(hdul, self.instrument.filter_keyword) or ["UNKNOWN"]
+            except Exception as e:
+                self.logger.warning(f"Failed to read filter keywords using get_header_values for flat file {ff}: {e}")
                 filter_names = ["UNKNOWN"]
+
 
             key = (w, bx, by, tuple(filter_names))
             matched_idx = flat_lookup.get(key)
