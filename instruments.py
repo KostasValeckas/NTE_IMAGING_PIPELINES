@@ -41,6 +41,7 @@ class Telescope:
 class Instrument:
     def __init__(
         self,
+        name: Optional[str] = None,
         detector: Optional[Detector] = None,
         telescope: Optional[Telescope] = None,
         filter_keyword: Optional[tuple[list[str], int]] = None,
@@ -53,6 +54,7 @@ class Instrument:
         science_keyword: Optional[list[str]] = None,
         data_hdu_extension: Optional[int] = None
     ):
+        self.name = name
         self.detector = detector if detector is not None else Detector()
         self.telescope = telescope if telescope is not None else Telescope()
 

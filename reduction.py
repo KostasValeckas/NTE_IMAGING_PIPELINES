@@ -262,6 +262,8 @@ class ReductionPipeline:
 
         Additionally collect bias filenames for each bias configuration (similar to setup_table).
         """
+        #TODO: HACKED - fix later
+        if self.instrument.name == "NOTCAM": return
 
         if not getattr(self, "setup_table", None):
             self.logger.info("No setup table available to determine bias configurations.")
@@ -382,6 +384,9 @@ class ReductionPipeline:
 
 
     def load_bias_configurations(self):
+        
+        #TODO: HACKED - fix later
+        if self.instrument.name == "NOTCAM": return
 
         try:
             inpath = os.path.join(self.raw_data_path, "bias_configurations.json")
@@ -404,6 +409,9 @@ class ReductionPipeline:
 
     def load_science_to_bias_map(self):
 
+        #TODO: HACKED - fix later
+        if self.instrument.name == "NOTCAM": return
+
         try:
             inpath = os.path.join(self.raw_data_path, "science_to_bias_map.json")
             with open(inpath, "r", encoding="utf-8") as fh:
@@ -418,7 +426,10 @@ class ReductionPipeline:
             self.science_to_bias_map = {}
 
     def make_master_bias(self):
-        
+
+        #TODO: HACKED - fix later
+        if self.instrument.name == "NOTCAM": return
+
         self.master_biases = {}
         self.bad_pixel_masks_bias = {}
 
@@ -544,20 +555,20 @@ class ReductionPipeline:
                     margin = span * 0.05 if span > 0 else max(abs(median_val) * 0.1, 1.0)
                     plt.xlim(lower_5s - margin, upper_5s + margin)
                     plt.tight_layout()
-                    if False: plt.show()
+                    plt.show()
 
                 # show bad-pixel mask and masked image for visual inspection (3-sigma mask)
                 plt.figure(figsize=(6, 5))
                 plt.imshow(bad_pixel_mask, origin="lower", cmap="gray")
                 plt.title(f"Bad pixel mask (median ± 3σ) for bias config: {configuration}")
                 plt.colorbar()
-                if False: plt.show()
+                plt.show()
 
                 plt.figure(figsize=(6, 5))
                 plt.imshow(masked_data_5s, origin="lower", cmap="gray")
                 plt.title(f"Masked combined master bias (median ± 5σ) for config: {configuration}")
                 plt.colorbar()
-                if False: plt.show()
+                plt.show()
 
 
                 # store results for this configuration
@@ -614,6 +625,8 @@ class ReductionPipeline:
 
     def load_master_biases(self):
 
+        if self.instrument.name == "NOTCAM": return
+
         self.master_biases = {}
 
         try:
@@ -648,6 +661,9 @@ class ReductionPipeline:
 
 
     def load_bad_pixel_masks_bias(self):
+
+        #TODO: HACKED - fix later
+        if self.instrument.name == "NOTCAM": return
 
         self.bad_pixel_masks_bias = {}
 
@@ -927,44 +943,49 @@ class ReductionPipeline:
                 combiner = Combiner(master_flat)
                 combined_median = combiner.median_combine()
 
-                # choose bias using science->flat and science->bias mappings:
-                bias_frame = None
-                bad_pixel_mask = None
+                if self.instrument.name != "NOTCAM":
+
+                    # choose bias using science->flat and science->bias mappings:
+                    bias_frame = None
+                    bad_pixel_mask = None
 
 
-                science_conf = self.science_to_flat_map.get(key)
-                bias_conf_idx = self.science_to_bias_map.get(science_conf)
+                    science_conf = self.science_to_flat_map.get(key)
+                    bias_conf_idx = self.science_to_bias_map.get(science_conf)
 
-                if bias_conf_idx is None:
-                    continue
+                    if bias_conf_idx is None:
+                        continue
 
-                bias_frame = self.master_biases.get(str(bias_conf_idx))
-                bad_pixel_mask_bias = self.bad_pixel_masks_bias.get(str(bias_conf_idx))
-
-
-
-                if bad_pixel_mask_bias is None:
-                    self.logger.error(f"No bad pixel mask found for bias config idx {bias_conf_idx} used in flat config {key}")
-                    exit(-1)
+                    bias_frame = self.master_biases.get(str(bias_conf_idx))
+                    bad_pixel_mask_bias = self.bad_pixel_masks_bias.get(str(bias_conf_idx))
 
 
-                masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask)
 
-                #TODO: for debugging:
-                if bias_frame is None:
-                    self.logger.error("NO BIAS FRAME - ABORTING")
-                    exit(-1)
+                    if bad_pixel_mask_bias is None:
+                        self.logger.error(f"No bad pixel mask found for bias config idx {bias_conf_idx} used in flat config {key}")
+                        exit(-1)
 
-                plt.imshow(masked_bias, origin="lower", cmap="gray")
-                plt.title(f"Bias frame for bias config idx {bias_conf_idx} used in flat config {key}")
-                plt.colorbar()
-                if False: plt.show()
 
-                masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask) 
+                    masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask)
 
-                masked_flat = np.ma.masked_array(combined_median.data, mask=bad_pixel_mask) 
+                    #TODO: for debugging:
+                    if bias_frame is None:
+                        self.logger.error("NO BIAS FRAME - ABORTING")
+                        exit(-1)
 
-                bias_subtracted_flat = masked_flat - masked_bias
+                    plt.imshow(masked_bias, origin="lower", cmap="gray")
+                    plt.title(f"Bias frame for bias config idx {bias_conf_idx} used in flat config {key}")
+                    plt.colorbar()
+                    plt.show()
+
+                    masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask) 
+
+                    masked_flat = np.ma.masked_array(combined_median.data, mask=bad_pixel_mask) 
+
+                    bias_subtracted_flat = masked_flat - masked_bias
+
+                else:
+                    bias_subtracted_flat = combined_median.data
 
                 work_arr = np.asarray(bias_subtracted_flat)
                 finite_mask = np.isfinite(work_arr)
@@ -1039,7 +1060,7 @@ class ReductionPipeline:
                     margin = span * 0.05 if span > 0 else max(abs(median_val) * 0.1, 1.0)
                     plt.xlim(lower_5s - margin, upper_5s + margin)
                     plt.tight_layout()
-                    if False: plt.show()
+                    plt.show()
                 except Exception:
                     pass
 
@@ -1048,7 +1069,7 @@ class ReductionPipeline:
                     plt.imshow(normalized_flat_masked, origin="lower", cmap="gray")
                     plt.title(f"Masked combined master flat (median ± 5σ) for config idx: {key}")
                     plt.colorbar()
-                    if False: plt.show()
+                    plt.show()
                 except Exception:
                     pass
 
@@ -1056,7 +1077,7 @@ class ReductionPipeline:
                 master_flat = CCDData(normalized_flat, unit=u.adu, header=combined_median.header)
 
                 self.master_flats[key] = master_flat
-                self.bad_pixel_masks_flats[str(bias_conf_idx)] = bad_pixel_mask_flat
+                self.bad_pixel_masks_flats[key] = bad_pixel_mask_flat
 
                 try:
                     outdir = os.path.join(self.raw_data_path, "master_flats")
@@ -1190,6 +1211,8 @@ class ReductionPipeline:
         for key, configuration in self.setup_table.items():
             print(f"Reducing science frame with setup config idx {key}: {configuration}")
 
+            if key == 0: continue
+
 
             bias_frame = self.master_biases.get(str(self.science_to_bias_map.get(key)))
             flat_frame = self.master_flats.get(str(self.science_to_flat_map.get(key)))
@@ -1204,7 +1227,7 @@ class ReductionPipeline:
                     self.logger.warning(f"Could not read science file {file}, skipping")
                     continue
 
-                if bias_frame is None:
+                if bias_frame is None and self.instrument.name != "NOTCAM":
                     self.logger.error(f"No master bias found for science config idx {key}, skipping reduction for file {file}")
                     continue
 
@@ -1218,26 +1241,56 @@ class ReductionPipeline:
 
                 
                 masked_science = np.ma.masked_array(science_data, mask=bad_pixel_mask)
-                masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask)
+                if self.instrument.name != "NOTCAM":
+                    masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask)
                 masked_flat = np.ma.masked_array(flat_frame.data, mask=bad_pixel_mask)
 
-                bias_subtracted = masked_science - masked_bias 
+                if self.instrument.name != "NOTCAM":
+                    bias_subtracted = masked_science - masked_bias
+                else:
+                    bias_subtracted = masked_science 
                 flat_corrected = bias_subtracted / masked_flat 
 
 
-                fig, ax = plt.subplots(1, 2, figsize=(18, 6))
+                # prepare arrays
+                science_arr = science_data.data if hasattr(science_data, "data") else np.asarray(science_data)
+                flat_arr_masked = masked_flat  # already a masked_array
+                reduced_masked = flat_corrected  # masked array result
 
-                ax[0].imshow(science_data, origin="lower", cmap="gray", vmin = np.percentile(science_data[~bad_pixel_mask], 5), vmax=np.percentile(science_data[~bad_pixel_mask], 95))
-                ax[0].set_title(f"Original science frame for config idx {key}")
-                fig.colorbar(ax[0].images[0], ax=ax[0])
+                # safe percentile helper
+                def safe_percentiles(values, low=5, high=95):
+                    try:
+                        if values is None or values.size == 0:
+                            return (0.0, 1.0)
+                        return (np.percentile(values, low), np.percentile(values, high))
+                    except Exception:
+                        mn = float(np.nanmin(values)) if values.size > 0 else 0.0
+                        mx = float(np.nanmax(values)) if values.size > 0 else mn + 1.0
+                        return (mn, mx)
 
+                # compute display limits
+                sci_vals = science_arr[~bad_pixel_mask] if np.any(~bad_pixel_mask) else science_arr.ravel()
+                smin, smax = safe_percentiles(sci_vals)
+                flat_vals = flat_arr_masked.compressed() if hasattr(flat_arr_masked, "compressed") else np.asarray(flat_arr_masked).ravel()
+                fmin, fmax = safe_percentiles(flat_vals)
+                red_vals = reduced_masked.compressed() if hasattr(reduced_masked, "compressed") else np.asarray(reduced_masked).ravel()
+                rmin, rmax = safe_percentiles(red_vals)
 
-                ax[1].imshow(flat_corrected, origin="lower", cmap="gray", vmin = np.percentile(flat_corrected.compressed(), 5), vmax=np.percentile(flat_corrected.compressed(), 95))
-                ax[1].set_title(f"Reduced science frame for config idx {key}")
-                fig.colorbar(ax[1].images[0], ax=ax[1])
+                fig, ax = plt.subplots(1, 3, figsize=(24, 6))
 
+                im0 = ax[0].imshow(science_arr, origin="lower", cmap="gray", vmin=smin, vmax=smax)
+                ax[0].set_title(f"Original science frame (config {key})")
+                fig.colorbar(im0, ax=ax[0])
 
+                im1 = ax[1].imshow(flat_arr_masked, origin="lower", cmap="viridis", vmin=fmin, vmax=fmax)
+                ax[1].set_title(f"Master flat used (config {self.science_to_flat_map.get(key)})")
+                fig.colorbar(im1, ax=ax[1])
 
+                im2 = ax[2].imshow(reduced_masked, origin="lower", cmap="gray", vmin=rmin, vmax=rmax)
+                ax[2].set_title(f"Reduced science frame (config {key})")
+                fig.colorbar(im2, ax=ax[2])
+
+                plt.tight_layout()
                 plt.show()
 
 

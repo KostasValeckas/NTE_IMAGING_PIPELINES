@@ -12,34 +12,50 @@ class NOTCAM(Instrument):
     def __init__(self):
         # Define NOTCAM CCD detector parameters
         notcam_swir3 = Detector(
-            window_keyword=("DETWIN1", 0),
-            bin_x_keyword=("DETXBIN", 0),
-            bin_y_keyword=("DETYBIN", 0),
+            window_keyword=None,
+            bin_x_keyword=None,
+            bin_y_keyword=None,
         )
         
         # Initialize parent class with ALFOSC-specific parameters
         super().__init__(
-            detector=alfosc_ccd,
+            name = "NOTCAM",
+            detector=notcam_swir3,
             data_hdu_extension=1,
-            filter_keyword=(["ALFLTNM", "FAFLTNM", "FBFLTNM"], 0),
+            filter_keyword=(["NCFLTNM1", "NCFLTNM2"], 0),
             obsmode_keyword=("OBS_MODE", 0),
             imaging_obsmode_keyword=("IMAGING", 0),
             imagetype_keyword=("IMAGETYP", 0),
-            bias_keyword=["BIAS"],
+            bias_keyword=None,
             dark_keyword=["DARK"],
             flat_keyword=["FLAT,SKY"],
             science_keyword=["OBJECT"],
         )
 
+
+    def get_header_value(self, hdul, keyword_tuple) -> Optional[str]:
+        """Helper method to extract header value based on provided keyword tuple"""
+    
+
+        #these are all constant for NOTCAM, so we use a dummy value
+        if keyword_tuple in [self.detector.window_keyword, self.detector.bin_x_keyword, self.detector.bin_y_keyword]:
+            return "0"
+
+        else:
+            return super().get_header_value(hdul, keyword_tuple)
+
+
     def match_image_type(self, hdul) -> Optional[ImageType]:
 
-        if hdul[0].header["IMAGETYP"] in self.bias_keyword:
-            return ImageType.BIAS
+        # bias frames are not applicable for NOTCAM, so we skip that check
         
-        if hdul[0].header["IMAGETYP"] in self.flat_keyword and hdul[0].header["ALAPRTNM"] == "Open":
+        if "skyflat" in hdul[0].header["OBJECT"]:
             return ImageType.FLAT
-        
-        if hdul[0].header["IMAGETYP"] in self.science_keyword and hdul[0].header["ALAPRTNM"] == "Open" and hdul[0].header["OBS_MODE"] == "IMAGING":
+
+        if ("dark" in hdul[0].header["OBJECT"]) or ("dfra" in hdul[0].header["OBJECT"]):
+            return ImageType.DARK
+
+        if ("OBJECT" in hdul[0].header["IMAGETYP"]) and (hdul[0].header["IMAGECAT"] == "SCIENCE") and (hdul[0].header["NCGRNM"] == "Open"):
             return ImageType.SCIENCE
         
 
@@ -57,9 +73,9 @@ if __name__ == "__main__":
         print(f"Error: raw data path does not exist: {raw_data_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Create ALFOSC instrument instance
-    alfosc = ALFOSC()
-    
-    pipeline = ReductionPipeline(alfosc, raw_data_path)
+    # Create NOTCAM instrument instance
+    notcam = NOTCAM()
+
+    pipeline = ReductionPipeline(notcam, raw_data_path)
 
     pipeline.run_pipeline()

@@ -19,6 +19,7 @@ class ALFOSC(Instrument):
         
         # Initialize parent class with ALFOSC-specific parameters
         super().__init__(
+            name = "ALFOSC",
             detector=alfosc_ccd,
             data_hdu_extension=1,
             filter_keyword=(["ALFLTNM", "FAFLTNM", "FBFLTNM"], 0),
