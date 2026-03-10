@@ -1211,21 +1211,64 @@ class ReductionPipeline:
         for key, configuration in self.setup_table.items():
             print(f"Reducing science frame with setup config idx {key}: {configuration}")
 
-            if key == 0: continue
+            #if key == 0: continue
 
 
-            bias_frame = self.master_biases.get(str(self.science_to_bias_map.get(key)))
-            flat_frame = self.master_flats.get(str(self.science_to_flat_map.get(key)))
-            bad_pixel_mask = self.bad_pixel_masks_flats.get(str(self.science_to_flat_map.get(key)))
+            # determine bias/flat indices and frames
+            bias_idx = self.science_to_bias_map.get(key)
+            bias_frame = self.master_biases.get(str(bias_idx)) if bias_idx is not None else None
+            flat_idx = self.science_to_flat_map.get(key)
+            flat_frame = self.master_flats.get(str(flat_idx))
+            bad_pixel_mask = self.bad_pixel_masks_flats.get(str(flat_idx))
+
+
+            # Build/extend a mapping of object name -> list of filenames for the current setup entries
+            if not hasattr(self, "object_to_files"):
+                self.object_to_files = {}
+
+            if not hasattr(self, "reduced_objects"):
+                self.reduced_objects = {}
+
+            for fname in configuration.get("files", []):
+                hdul_tmp = self.open_fits_file(fname)
+                if hdul_tmp is None:
+                    self.logger.warning(f"Could not open {fname} to read OBJECT header, skipping for object mapping")
+                    continue
+                try:
+                    obj = self.instrument.get_header_value(hdul_tmp, self.instrument.object_keyword) or "UNKNOWN"
+                except Exception as e:
+                    self.logger.warning(f"Failed to read object name from header for {fname}: {e}")
+                    obj = "UNKNOWN"
+                key = str(obj)
+                lst = self.object_to_files.setdefault(key, [])
+                if fname not in lst:
+                    lst.append(fname)
+
+
+            # optional quick log
+            self.logger.info(f"Updated object->files map; total objects tracked: {len(self.object_to_files)}")
 
 
             for file in configuration.get("files", []):
-                self.logger.info(f"Reducing science file {file} with setup config idx {key}")
 
+
+                self.logger.info(f"Reducing science file {file} with setup config idx {key}")
+                
+                hdul = self.open_fits_file(file)
                 science_data = self.get_fits_data(file)
+                
                 if science_data is None:
                     self.logger.warning(f"Could not read science file {file}, skipping")
                     continue
+
+                # Print name of the object being reduced if available
+                try:
+                    obj_name = self.instrument.get_header_value(hdul, self.instrument.object_keyword) or "UNKNOWN"
+                    self.logger.info(f"Object name from header: {obj_name}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to read object name from header for file {file}: {e}")
+
+
 
                 if bias_frame is None and self.instrument.name != "NOTCAM":
                     self.logger.error(f"No master bias found for science config idx {key}, skipping reduction for file {file}")
@@ -1240,22 +1283,23 @@ class ReductionPipeline:
                     continue
 
                 
-                masked_science = np.ma.masked_array(science_data, mask=bad_pixel_mask)
-                if self.instrument.name != "NOTCAM":
-                    masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask)
+                # create masked arrays for science / bias / flat using the bad-pixel mask
+                science_arr = science_data.data if hasattr(science_data, "data") else np.asarray(science_data)
+                masked_science = np.ma.masked_array(science_arr, mask=bad_pixel_mask)
+
+                has_bias = (bias_frame is not None) and (self.instrument.name != "NOTCAM")
+                masked_bias = np.ma.masked_array(bias_frame.data, mask=bad_pixel_mask) if has_bias else None
                 masked_flat = np.ma.masked_array(flat_frame.data, mask=bad_pixel_mask)
 
-                if self.instrument.name != "NOTCAM":
+                if has_bias:
                     bias_subtracted = masked_science - masked_bias
                 else:
                     bias_subtracted = masked_science 
                 flat_corrected = bias_subtracted / masked_flat 
 
 
-                # prepare arrays
-                science_arr = science_data.data if hasattr(science_data, "data") else np.asarray(science_data)
-                flat_arr_masked = masked_flat  # already a masked_array
-                reduced_masked = flat_corrected  # masked array result
+                # reduced result (masked array)
+                reduced_masked = flat_corrected
 
                 # safe percentile helper
                 def safe_percentiles(values, low=5, high=95):
@@ -1268,31 +1312,202 @@ class ReductionPipeline:
                         mx = float(np.nanmax(values)) if values.size > 0 else mn + 1.0
                         return (mn, mx)
 
-                # compute display limits
+                # compute display limits for each panel
                 sci_vals = science_arr[~bad_pixel_mask] if np.any(~bad_pixel_mask) else science_arr.ravel()
                 smin, smax = safe_percentiles(sci_vals)
-                flat_vals = flat_arr_masked.compressed() if hasattr(flat_arr_masked, "compressed") else np.asarray(flat_arr_masked).ravel()
+
+                flat_vals = masked_flat.compressed() if hasattr(masked_flat, "compressed") else np.asarray(masked_flat).ravel()
                 fmin, fmax = safe_percentiles(flat_vals)
+
                 red_vals = reduced_masked.compressed() if hasattr(reduced_masked, "compressed") else np.asarray(reduced_masked).ravel()
                 rmin, rmax = safe_percentiles(red_vals)
 
-                fig, ax = plt.subplots(1, 3, figsize=(24, 6))
+                if has_bias:
+                    bias_vals = masked_bias.compressed() if hasattr(masked_bias, "compressed") else np.asarray(masked_bias).ravel()
+                    bmin, bmax = safe_percentiles(bias_vals)
 
-                im0 = ax[0].imshow(science_arr, origin="lower", cmap="gray", vmin=smin, vmax=smax)
-                ax[0].set_title(f"Original science frame (config {key})")
-                fig.colorbar(im0, ax=ax[0])
+                if False:
 
-                im1 = ax[1].imshow(flat_arr_masked, origin="lower", cmap="viridis", vmin=fmin, vmax=fmax)
-                ax[1].set_title(f"Master flat used (config {self.science_to_flat_map.get(key)})")
-                fig.colorbar(im1, ax=ax[1])
+                    # create subplots: 2x2 if bias exists, else 1x3
+                    if has_bias:
+                        fig, axs = plt.subplots(2, 2, figsize=(16, 10))
+                        ax_list = list(axs.flatten())
+                    else:
+                        fig, axs = plt.subplots(1, 3, figsize=(24, 6))
+                        ax_list = list(axs)
 
-                im2 = ax[2].imshow(reduced_masked, origin="lower", cmap="gray", vmin=rmin, vmax=rmax)
-                ax[2].set_title(f"Reduced science frame (config {key})")
-                fig.colorbar(im2, ax=ax[2])
+                    # Original science
+                    im0 = ax_list[0].imshow(science_arr, origin="lower", cmap="gray", vmin=smin, vmax=smax)
+                    ax_list[0].set_title(f"Original science frame (config {key})")
+                    fig.colorbar(im0, ax=ax_list[0])
 
-                plt.tight_layout()
-                plt.show()
+                    # Bias frame (if present)
+                    if has_bias:
+                        imb = ax_list[1].imshow(masked_bias, origin="lower", cmap="gray", vmin=bmin, vmax=bmax)
+                        ax_list[1].set_title(f"Used bias frame (bias idx {bias_idx})")
+                        fig.colorbar(imb, ax=ax_list[1])
 
+                        # Master flat becomes panel 3 and reduced panel 4
+                        im1 = ax_list[2].imshow(masked_flat, origin="lower", cmap="viridis", vmin=fmin, vmax=fmax)
+                        ax_list[2].set_title(f"Master flat used (flat idx {flat_idx})")
+                        fig.colorbar(im1, ax=ax_list[2])
+
+                        im2 = ax_list[3].imshow(reduced_masked, origin="lower", cmap="gray", vmin=rmin, vmax=rmax)
+                        ax_list[3].set_title(f"Reduced science frame (config {key})")
+                        fig.colorbar(im2, ax=ax_list[3])
+
+                    else:
+                        # No bias: panels are science, flat, reduced
+                        im1 = ax_list[1].imshow(masked_flat, origin="lower", cmap="viridis", vmin=fmin, vmax=fmax)
+                        ax_list[1].set_title(f"Master flat used (flat idx {flat_idx})")
+                        fig.colorbar(im1, ax=ax_list[1])
+
+                        im2 = ax_list[2].imshow(reduced_masked, origin="lower", cmap="gray", vmin=rmin, vmax=rmax)
+                        ax_list[2].set_title(f"Reduced science frame (config {key})")
+                        fig.colorbar(im2, ax=ax_list[2])
+
+                    plt.tight_layout()
+                    plt.show()
+
+                # store reduced image into per-object, per-filter datacube
+                try:
+                    obj_name = self.instrument.get_header_value(hdul, self.instrument.object_keyword) or "UNKNOWN"
+                except Exception:
+                    obj_name = "UNKNOWN"
+                obj_key = str(obj_name)
+
+                # derive a filter-configuration key from the current setup configuration
+                filters = configuration.get("filter") or []
+                if isinstance(filters, (list, tuple)):
+                    filter_tuple = tuple(filters)
+                else:
+                    filter_tuple = (filters,)
+                # make a compact, filesystem/header-safe key
+                try:
+                    filter_key = ",".join([str(f) for f in filter_tuple]) if filter_tuple else "UNKNOWN"
+                except Exception:
+                    filter_key = str(filter_tuple)
+
+                # convert masked array to regular float array with NaNs for masked pixels
+                try:
+                    arr = reduced_masked.filled(np.nan) if hasattr(reduced_masked, "filled") else np.asarray(reduced_masked)
+                    arr = np.asarray(arr, dtype=float)
+                except Exception:
+                    arr = np.asarray(reduced_masked, dtype=float)
+
+                # ensure top-level object entry exists and is a dict
+                if obj_key not in self.reduced_objects or self.reduced_objects.get(obj_key) is None:
+                    self.reduced_objects[obj_key] = {}
+
+                obj_dict = self.reduced_objects[obj_key]
+
+                # initialize or append to datacube for this filter configuration
+                existing = obj_dict.get(filter_key)
+                if existing is None:
+                    # start a new datacube with one frame
+                    obj_dict[filter_key] = arr[np.newaxis, ...]
+                else:
+                    # if shapes match, stack; otherwise log and skip this frame
+                    if isinstance(existing, np.ndarray) and existing.ndim == 3 and existing.shape[1:] == arr.shape:
+                        try:
+                            obj_dict[filter_key] = np.concatenate([existing, arr[np.newaxis, ...]], axis=0)
+                        except Exception as e:
+                            self.logger.warning(f"Failed to append reduced frame for object {obj_key}, filter {filter_key}: {e}")
+                    else:
+                        self.logger.warning(
+                            f"Shape mismatch when adding reduced frame for object {obj_key}, filter {filter_key}: "
+                            f"existing={existing.shape if isinstance(existing, np.ndarray) else 'unknown'}, new={arr.shape}; skipping frame"
+                        )
+
+
+        # For every object and filter configuration, compute the median frame and display it
+        try:
+            for obj_key, obj_dict in getattr(self, "reduced_objects", {}).items():
+                for filter_key, cube in (obj_dict or {}).items():
+                    try:
+                        if not isinstance(cube, np.ndarray):
+                            self.logger.warning(f"Skipping non-array datacube for object={obj_key} filter={filter_key}")
+                            continue
+                        if cube.ndim != 3:
+                            self.logger.warning(f"Skipping datacube with invalid ndim for object={obj_key} filter={filter_key}: ndim={cube.ndim}")
+                            continue
+                        
+                        n_frames = int(cube.shape[0])
+                        if n_frames < 3:
+                            self.logger.info(f"Not enough frames to compute median for object={obj_key} filter={filter_key}: found {n_frames} (need >= 3), skipping")
+                            continue
+                        
+                        # compute median ignoring NaNs
+                        median_img = np.nanmedian(cube, axis=0)
+
+
+                        # subtract the median from every frame in the datacube and display the residuals
+                        diffs = cube - median_img[np.newaxis, ...]  # broadcast median to cube shape
+
+                        for i in range(diffs.shape[0]):
+                            frame = diffs[i]
+                            orig = cube[i]
+
+                            # robust symmetric stretch for the diff panel
+                            try:
+                                vmax = np.nanpercentile(np.abs(frame), 95)
+                                if not np.isfinite(vmax) or vmax == 0:
+                                    vmax = float(np.nanmax(np.abs(frame))) if np.isfinite(np.nanmax(np.abs(frame))) else 1.0
+                            except Exception:
+                                vmax = 1.0
+
+                            # robust limits for the median image (use 5th-95th percentiles)
+                            try:
+                                mmin = np.nanpercentile(median_img, 5)
+                                mmax = np.nanpercentile(median_img, 95)
+                                if not np.isfinite(mmin) or not np.isfinite(mmax) or mmin == mmax:
+                                    mmin = float(np.nanmin(median_img)) if np.isfinite(np.nanmin(median_img)) else 0.0
+                                    mmax = float(np.nanmax(median_img)) if np.isfinite(np.nanmax(median_img)) else mmin + 1.0
+                            except Exception:
+                                mmin = float(np.nanmin(median_img)) if np.isfinite(np.nanmin(median_img)) else 0.0
+                                mmax = float(np.nanmax(median_img)) if np.isfinite(np.nanmax(median_img)) else mmin + 1.0
+
+                            # robust limits for the original frame (5th-95th percentiles)
+                            try:
+                                omin = np.nanpercentile(orig, 5)
+                                omax = np.nanpercentile(orig, 95)
+                                if not np.isfinite(omin) or not np.isfinite(omax) or omin == omax:
+                                    omin = float(np.nanmin(orig)) if np.isfinite(np.nanmin(orig)) else 0.0
+                                    omax = float(np.nanmax(orig)) if np.isfinite(np.nanmax(orig)) else omin + 1.0
+                            except Exception:
+                                omin = float(np.nanmin(orig)) if np.isfinite(np.nanmin(orig)) else 0.0
+                                omax = float(np.nanmax(orig)) if np.isfinite(np.nanmax(orig)) else omin + 1.0
+
+                            # plot original, median and diff side-by-side
+                            fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+
+                            im0 = axs[0].imshow(orig, origin="lower", cmap="gray", vmin=omin, vmax=omax)
+                            axs[0].set_title(f"Original frame (Object={obj_key} Filter={filter_key})")
+                            axs[0].axis("off")
+                            cbar0 = fig.colorbar(im0, ax=axs[0], fraction=0.046, pad=0.04)
+                            cbar0.ax.set_ylabel("ADU")
+
+                            im1 = axs[1].imshow(median_img, origin="lower", cmap="viridis", vmin=mmin, vmax=mmax)
+                            axs[1].set_title("Median image")
+                            axs[1].axis("off")
+                            cbar1 = fig.colorbar(im1, ax=axs[1], fraction=0.046, pad=0.04)
+                            cbar1.ax.set_ylabel("ADU")
+
+                            im2 = axs[2].imshow(frame, origin="lower", cmap="gray", vmin=-vmax, vmax=vmax)
+                            axs[2].set_title(f"Frame - median (frame {i})")
+                            axs[2].axis("off")
+                            cbar2 = fig.colorbar(im2, ax=axs[2], fraction=0.046, pad=0.04)
+                            cbar2.ax.set_ylabel("ADU")
+
+                            plt.tight_layout()
+                            plt.show()
+
+                    
+                    except Exception as e:
+                        self.logger.error(f"Failed to display median for object={obj_key} filter={filter_key}: {e}")
+        except Exception as e:
+            self.logger.error(f"Error while iterating reduced objects to show medians: {e}")
+        
 
 
     def run_pipeline(self):
@@ -1310,6 +1525,8 @@ class ReductionPipeline:
             self.determine_flat_configurations()
 
             self.make_master_flats()
+
+            self.reduce()
 
 
         if True:

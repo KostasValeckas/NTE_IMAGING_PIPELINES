@@ -30,6 +30,7 @@ class ALFOSC(Instrument):
             dark_keyword=["DARK"],
             flat_keyword=["FLAT,SKY"],
             science_keyword=["OBJECT"],
+            object_keyword=("OBJECT", 0)
         )
 
     def match_image_type(self, hdul) -> Optional[ImageType]:

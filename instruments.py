@@ -52,7 +52,8 @@ class Instrument:
         dark_keyword: Optional[list[str]] = None,
         flat_keyword: Optional[list[str]] = None,
         science_keyword: Optional[list[str]] = None,
-        data_hdu_extension: Optional[int] = None
+        data_hdu_extension: Optional[int] = None,
+        object_keyword: Optional[tuple[str, int]] = None,
     ):
         self.name = name
         self.detector = detector if detector is not None else Detector()
@@ -72,6 +73,8 @@ class Instrument:
         self.dark_keyword = dark_keyword if dark_keyword is not None else []
         self.flat_keyword = flat_keyword if flat_keyword is not None else []
         self.science_keyword = science_keyword if science_keyword is not None else []
+
+        self.object_keyword = object_keyword if object_keyword is not None else (None, 0)
 
 
         self.data_hdu_extension = data_hdu_extension
