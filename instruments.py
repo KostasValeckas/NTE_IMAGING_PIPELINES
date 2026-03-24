@@ -4,6 +4,7 @@ import os
 from enum import Enum
 from datatypes import ImageType
 
+
 @dataclass
 class Detector:
     gain: Optional[tuple[str, int]] = None
@@ -23,7 +24,6 @@ class Telescope:
     aperture: Optional[tuple[str, int]] = None
     focal_length: Optional[tuple[str, int]] = None
     location: Optional[tuple[str, int]] = None
-
 
 
 class Instrument:
@@ -49,10 +49,13 @@ class Instrument:
 
         self.filter_keyword = filter_keyword if filter_keyword is not None else ([], 0)
 
-
-        self.obsmode_keyword = obsmode_keyword if obsmode_keyword is not None else (None, 0)
+        self.obsmode_keyword = (
+            obsmode_keyword if obsmode_keyword is not None else (None, 0)
+        )
         self.imaging_obsmode_keyword = (
-            imaging_obsmode_keyword if imaging_obsmode_keyword is not None else (None, 0)
+            imaging_obsmode_keyword
+            if imaging_obsmode_keyword is not None
+            else (None, 0)
         )
         self.imagetype_keyword = (
             imagetype_keyword if imagetype_keyword is not None else (None, 0)
@@ -62,22 +65,22 @@ class Instrument:
         self.flat_keyword = flat_keyword if flat_keyword is not None else []
         self.science_keyword = science_keyword if science_keyword is not None else []
 
-        self.object_keyword = object_keyword if object_keyword is not None else (None, 0)
-
+        self.object_keyword = (
+            object_keyword if object_keyword is not None else (None, 0)
+        )
 
         self.data_hdu_extension = data_hdu_extension
 
     def match_image_type(self, hdul) -> Optional[ImageType]:
-        
+
         # Base implementation: intended to be overridden by subclasses.
         # Return None to indicate "no determination" at this level.
         return None
 
 
-
 class ALFOSC(Instrument):
     """ALFOSC instrument configuration for NOT telescope"""
-    
+
     def __init__(self):
         # Define ALFOSC CCD detector parameters
         alfosc_ccd = Detector(
@@ -85,10 +88,10 @@ class ALFOSC(Instrument):
             bin_x_keyword=("DETXBIN", 0),
             bin_y_keyword=("DETYBIN", 0),
         )
-        
+
         # Initialize parent class with ALFOSC-specific parameters
         super().__init__(
-            name = "ALFOSC",
+            name="ALFOSC",
             detector=alfosc_ccd,
             data_hdu_extension=1,
             filter_keyword=(["ALFLTNM", "FAFLTNM", "FBFLTNM"], 0),
@@ -99,17 +102,23 @@ class ALFOSC(Instrument):
             dark_keyword=["DARK"],
             flat_keyword=["FLAT,SKY"],
             science_keyword=["OBJECT"],
-            object_keyword=("OBJECT", 0)
+            object_keyword=("OBJECT", 0),
         )
 
     def match_image_type(self, hdul) -> Optional[ImageType]:
 
         if hdul[0].header["IMAGETYP"] in self.bias_keyword:
             return ImageType.BIAS
-        
-        if hdul[0].header["IMAGETYP"] in self.flat_keyword and hdul[0].header["ALAPRTNM"] == "Open":
+
+        if (
+            hdul[0].header["IMAGETYP"] in self.flat_keyword
+            and hdul[0].header["ALAPRTNM"] == "Open"
+        ):
             return ImageType.FLAT
-        
-        if hdul[0].header["IMAGETYP"] in self.science_keyword and hdul[0].header["ALAPRTNM"] == "Open" and hdul[0].header["OBS_MODE"] == "IMAGING":
+
+        if (
+            hdul[0].header["IMAGETYP"] in self.science_keyword
+            and hdul[0].header["ALAPRTNM"] == "Open"
+            and hdul[0].header["OBS_MODE"] == "IMAGING"
+        ):
             return ImageType.SCIENCE
-        
