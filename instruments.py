@@ -3,6 +3,11 @@ from typing import Optional
 import os
 from enum import Enum
 from datatypes import ImageType
+from ccdproc import Combiner, CCDData 
+from IO import open_fits_file
+import matplotlib.pyplot as plt
+import numpy as np
+import astropy.units as u
 
 
 @dataclass
@@ -77,6 +82,38 @@ class Instrument:
         # Return None to indicate "no determination" at this level.
         return None
 
+    def make_master_bias(self, input_dir, bias_files, logger, bad_pixel_mask = None):
+
+        bias_stack = []
+
+        for file in bias_files:
+
+            filepath = os.path.join(input_dir, file)
+
+            hdul = open_fits_file(filepath, logger)
+
+            # create CCDData directly from the numpy array and keep header/meta
+            try:
+                data = hdul[self.data_hdu_extension].data
+                hdr = hdul[self.data_hdu_extension].header if len(hdul) > self.data_hdu_extension else None
+                ccd_data = CCDData(data, unit=u.adu, meta={"header": hdr} if hdr is not None else None)
+            except Exception:
+                # fallback: create CCDData without header
+                ccd_data = CCDData(hdul[self.data_hdu_extension].data, unit=u.adu)
+            bias_stack.append(ccd_data)
+
+        # 2 sigma clipped median master bias
+        combiner = Combiner(bias_stack)
+        combiner.sigma_clipping(low_thresh=2, high_thresh=2, func=np.ma.median)
+
+        master_bias = combiner.median_combine()
+
+        plt.imshow(master_bias.data, cmap="gray", vmin=np.percentile(master_bias.data, 5), vmax=np.percentile(master_bias.data, 95))
+        plt.colorbar()
+        plt.title("Master Bias")
+        plt.show()
+        
+
 
 class ALFOSC(Instrument):
     """ALFOSC instrument configuration for NOT telescope"""
@@ -105,6 +142,7 @@ class ALFOSC(Instrument):
             object_keyword=("OBJECT", 0),
         )
 
+
     def match_image_type(self, hdul) -> Optional[ImageType]:
 
         if hdul[0].header["IMAGETYP"] in self.bias_keyword:
@@ -122,3 +160,7 @@ class ALFOSC(Instrument):
             and hdul[0].header["OBS_MODE"] == "IMAGING"
         ):
             return ImageType.SCIENCE
+
+
+
+

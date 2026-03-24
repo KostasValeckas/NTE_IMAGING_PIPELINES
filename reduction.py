@@ -1,6 +1,6 @@
 from instruments import Instrument
 from logger import init_logger
-from IO import sort_data
+from sorting import sort_data, create_setup_table, create_bias_table
 
 
 class ReductionPipeline:
@@ -34,10 +34,10 @@ class ReductionPipeline:
         self.science_to_flat_map = None
 
         self.master_biases = None
-        self.bad_pixel_masks_bias = None
+        self.bad_pixel_masks = None
 
         self.master_flats = None
-        self.bad_pixel_masks_flats = None
+        self.bad_pixel_masks = None
 
     def run_pipeline(self):
 
@@ -47,8 +47,32 @@ class ReductionPipeline:
 
         self.logger.info("Sorting data into bias, dark, flat, and science frames")
 
-        self.bias_files, self.dark_files, self.flat_files, self.science_files = sort_data(
-            self.instrument, self.logger, self.raw_data_path, self.output_dir
+        self.bias_files, self.dark_files, self.flat_files, self.science_files = (
+            sort_data(self.instrument, self.logger, self.raw_data_path, self.output_dir)
         )
 
-        
+        self.logger.info("Determinning setup configurations...")
+
+        self.setup_table = create_setup_table(
+            self.instrument,
+            self.logger,
+            self.raw_data_path,
+            self.output_dir,
+            self.science_files,
+        )
+
+        self.bias_configurations, self.science_to_bias_map = create_bias_table(
+            self.instrument,
+            self.logger,
+            self.raw_data_path,
+            self.output_dir,
+            self.setup_table,
+            self.bias_files
+        )
+
+        for config, bias_table_entry in self.bias_configurations.items():
+            bias_files = bias_table_entry["files"]
+
+            self.logger.info(f"Creating master bias for configuration: {config} with {len(bias_files)} files")
+
+            self.instrument.make_master_bias(self.raw_data_path, bias_files, self.logger)
