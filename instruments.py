@@ -8,6 +8,7 @@ from IO import open_fits_file
 import matplotlib.pyplot as plt
 import numpy as np
 import astropy.units as u
+from astropy.io import fits
 
 
 @dataclass
@@ -82,36 +83,107 @@ class Instrument:
         # Return None to indicate "no determination" at this level.
         return None
 
-    def make_master_bias(self, input_dir, bias_files, logger, bad_pixel_mask = None):
+    def make_master_bias(
+        self,
+        input_dir,
+        output_dir,
+        bias_setup,
+        logger,
+        bad_pixel_masks=None,
+        show_plots=False,
+    ):
 
-        bias_stack = []
+        for key, value in bias_setup.items():
+            logger.info(
+                f"Making master bias for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}) with {len(value['files'])} bias frames"
+            )
 
-        for file in bias_files:
 
-            filepath = os.path.join(input_dir, file)
+            bias_stack = []
 
-            hdul = open_fits_file(filepath, logger)
+            for file in value["files"]:
 
-            # create CCDData directly from the numpy array and keep header/meta
+                filepath = os.path.join(input_dir, file)
+
+                hdul = open_fits_file(filepath, logger)
+
+                # create CCDData directly from the numpy array and keep header/meta
+                try:
+                    data = hdul[self.data_hdu_extension].data
+                    hdr = (
+                        hdul[self.data_hdu_extension].header
+                        if len(hdul) > self.data_hdu_extension
+                        else None
+                    )
+                    ccd_data = CCDData(
+                        data,
+                        unit=u.adu,
+                        meta={"header": hdr} if hdr is not None else None,
+                    )
+                except Exception:
+                    # fallback: create CCDData without header
+                    ccd_data = CCDData(hdul[self.data_hdu_extension].data, unit=u.adu)
+                bias_stack.append(ccd_data)
+
+            # 2 sigma clipped median master bias
+            master_bias = combine(
+                bias_stack,
+                method="median",
+                sigma_clip=True,
+                sigma_clip_low_thresh=2,
+                sigma_clip_high_thresh=2,
+            )
+
+            plt.close()  
+
+            plt.imshow(
+                master_bias.data,
+                cmap="gray",
+                vmin=np.percentile(master_bias.data, 5),
+                vmax=np.percentile(master_bias.data, 95),
+            )
+            plt.colorbar()
+            plt.title(f"Master Bias for window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}")
+
+            # save plot to the output directory
+            plot_path = os.path.join(output_dir, f"master_bias_{key}.png")
+            plt.savefig(plot_path)
+
+            if show_plots:
+                plt.show()
+
+
+            middle_header = fits.Header()
+
+            master_bias_filename = os.path.join(output_dir, f"master_bias_{key}.fits")  
             try:
-                data = hdul[self.data_hdu_extension].data
-                hdr = hdul[self.data_hdu_extension].header if len(hdul) > self.data_hdu_extension else None
-                ccd_data = CCDData(data, unit=u.adu, meta={"header": hdr} if hdr is not None else None)
-            except Exception:
-                # fallback: create CCDData without header
-                ccd_data = CCDData(hdul[self.data_hdu_extension].data, unit=u.adu)
-            bias_stack.append(ccd_data)
+                # Write the combined master bias using a PrimaryHDU to avoid extension-specific
+                # header keywords (e.g. XTENSION) causing FITS validation errors when writing.
+                data_out = master_bias.data.astype(np.float32)
 
-        # 2 sigma clipped median master bias
-        master_bias = combine(bias_stack, method='median', sigma_clip=True,
-                           sigma_clip_low_thresh=2,
-                           sigma_clip_high_thresh=2)
+                # Try to preserve a cleaned copy of the original header if available
+                hdr = None
+                if hasattr(master_bias, 'meta') and isinstance(master_bias.meta, dict):
+                    src_hdr = master_bias.meta.get('header')
+                    if isinstance(src_hdr, fits.Header):
+                        hdr = src_hdr.copy()
+                        # Remove extension-specific / illegal keywords for a primary HDU
+                        for _k in ('XTENSION', 'PCOUNT', 'GCOUNT', 'EXTNAME', 'EXTVER',
+                                   'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2'):
+                            if _k in hdr:
+                                del hdr[_k]
 
-        plt.imshow(master_bias.data, cmap="gray", vmin=np.percentile(master_bias.data, 5), vmax=np.percentile(master_bias.data, 95))
-        plt.colorbar()
-        plt.title("Master Bias")
-        plt.show()
-        
+                if hdr is None:
+                    hdr = fits.Header()
+
+                fits.PrimaryHDU(data_out, header=hdr).writeto(master_bias_filename, overwrite=True)
+                logger.info(f"Master bias saved to {master_bias_filename}")
+            except Exception as e:
+                logger.error(f"Failed to save master bias to {master_bias_filename}: {e}")
+                logger.error("Master bias creation failed, exiting...")
+                exit(-1)
+
+        logger.info("Master bias creation complete.")
 
 
 class ALFOSC(Instrument):
@@ -141,7 +213,6 @@ class ALFOSC(Instrument):
             object_keyword=("OBJECT", 0),
         )
 
-
     def match_image_type(self, hdul) -> Optional[ImageType]:
 
         if hdul[0].header["IMAGETYP"] in self.bias_keyword:
@@ -159,7 +230,3 @@ class ALFOSC(Instrument):
             and hdul[0].header["OBS_MODE"] == "IMAGING"
         ):
             return ImageType.SCIENCE
-
-
-
-

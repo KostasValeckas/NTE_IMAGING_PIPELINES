@@ -4,13 +4,17 @@ from sorting import sort_data, create_setup_table, create_bias_table
 
 
 class ReductionPipeline:
-    def __init__(self, instrument: Instrument, raw_data_path, output_dir=None):
+    def __init__(
+        self, instrument: Instrument, raw_data_path, output_dir=None, show_plots=False
+    ):
 
         self.logger = (
             init_logger(raw_data_path)
             if output_dir is None
             else init_logger(output_dir)
         )
+
+        self.show_plots = show_plots
 
         if output_dir is not None:
             self.output_dir = output_dir
@@ -67,12 +71,9 @@ class ReductionPipeline:
             self.raw_data_path,
             self.output_dir,
             self.setup_table,
-            self.bias_files
+            self.bias_files,
         )
 
-        for config, bias_table_entry in self.bias_configurations.items():
-            bias_files = bias_table_entry["files"]
-
-            self.logger.info(f"Creating master bias for configuration: {config} with {len(bias_files)} files")
-
-            self.instrument.make_master_bias(self.raw_data_path, bias_files, self.logger)
+        self.master_biases = self.instrument.make_master_bias(
+            self.raw_data_path, self.output_dir, self.bias_configurations, self.logger
+        )

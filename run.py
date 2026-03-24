@@ -28,6 +28,11 @@ if __name__ == "__main__":
         help="Override existing output directory if it exists",
     )
     parser.add_argument(
+        "--show-plots",
+        action="store_true",
+        help="Show debugging plots during reduction",
+    )
+    parser.add_argument(
         "instrument", type=str, help="Instrument to use. Options: ALFOSC"
     )
     args = parser.parse_args()
@@ -56,6 +61,12 @@ if __name__ == "__main__":
         case "ALFOSC":
             instrument = ALFOSC()
 
-    pipeline = ReductionPipeline(instrument, raw_data_path, output_dir=output_dir)
+    show_plots = args.show_plots
+    if show_plots is None:
+        show_plots = False
+
+    pipeline = ReductionPipeline(
+        instrument, raw_data_path, output_dir=output_dir, show_plots=show_plots
+    )
 
     pipeline.run_pipeline()

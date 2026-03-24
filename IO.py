@@ -5,7 +5,6 @@ from enum import Enum
 from logging import Logger
 
 
-
 def open_fits_file(filepath: str, logger: Logger):
     # a robust wrapper around fits.open that handles exceptions and logs errors
     try:
@@ -23,7 +22,7 @@ def get_header_value(hdul, keyword_tuple, logger: Logger):
 
     key, hdu_index = keyword_tuple
 
-    # special case were header does not exist 
+    # special case were header does not exist
     if (key == "CONSTANT") or (key is None):
         return "CONSTANT"
 

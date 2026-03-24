@@ -164,14 +164,13 @@ def create_bias_table(
     setup_table,
     bias_file_list,
 ):
-    
+
     bias_table = {}
     bias_key_map = {}
     science_to_bias_map = {}
     bias_table_counter = 0
 
-
-    # first - create the tables without sorting bias files. Slower, but 
+    # first - create the tables without sorting bias files. Slower, but
     # simpler to implement and less error-prone.
     for setup_idx, setup in setup_table.items():
 
@@ -193,7 +192,7 @@ def create_bias_table(
 
     # now loop through bias files and assign them to the correct bias table entry
     for bias_file in bias_file_list:
-        
+
         path = os.path.join(input_dir, bias_file)
 
         hdul = open_fits_file(path, logger)
@@ -210,7 +209,9 @@ def create_bias_table(
             bias_idx = bias_key_map[bias_key]
             bias_table[bias_idx]["files"].append(bias_file)
         else:
-            logger.warning(f"Bias file {bias_file} has no matching setup key {bias_key}")
+            logger.warning(
+                f"Bias file {bias_file} has no matching setup key {bias_key}"
+            )
 
     # write the bias table and the map to science to disc
 
@@ -229,10 +230,8 @@ def create_bias_table(
             json.dump(science_to_bias_map, f, indent=4)
             logger.info(f"Science to bias map written to {science_to_bias_filename}")
     except Exception as e:
-        logger.error(f"Failed to write science to bias map to {science_to_bias_filename}: {e}")
+        logger.error(
+            f"Failed to write science to bias map to {science_to_bias_filename}: {e}"
+        )
 
     return bias_table, science_to_bias_map
-
-            
-            
-
