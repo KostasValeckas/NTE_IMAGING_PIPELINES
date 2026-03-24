@@ -3,7 +3,7 @@ from typing import Optional
 import os
 from enum import Enum
 from datatypes import ImageType
-from ccdproc import Combiner, CCDData 
+from ccdproc import combine, CCDData
 from IO import open_fits_file
 import matplotlib.pyplot as plt
 import numpy as np
@@ -103,10 +103,9 @@ class Instrument:
             bias_stack.append(ccd_data)
 
         # 2 sigma clipped median master bias
-        combiner = Combiner(bias_stack)
-        combiner.sigma_clipping(low_thresh=2, high_thresh=2, func=np.ma.median)
-
-        master_bias = combiner.median_combine()
+        master_bias = combine(bias_stack, method='median', sigma_clip=True,
+                           sigma_clip_low_thresh=2,
+                           sigma_clip_high_thresh=2)
 
         plt.imshow(master_bias.data, cmap="gray", vmin=np.percentile(master_bias.data, 5), vmax=np.percentile(master_bias.data, 95))
         plt.colorbar()
