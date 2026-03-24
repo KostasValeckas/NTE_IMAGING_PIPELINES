@@ -1,9 +1,9 @@
-from instruments import Detector, Telescope, Instrument
-from reduction import ReductionPipeline
-import sys
-from pathlib import Path
+from instruments import Detector, Instrument
+
+
 from typing import Optional
 from instruments import ImageType
+
 
 
 class ALFOSC(Instrument):
@@ -45,23 +45,4 @@ class ALFOSC(Instrument):
             return ImageType.SCIENCE
         
 
-if __name__ == "__main__":
 
-    # TODO: should logger be initialized already here?
-
-    if len(sys.argv) != 2:
-        print(f"Usage: {Path(sys.argv[0]).name} RAW_DATA_PATH", file=sys.stderr)
-        sys.exit(1)
-
-    raw_data_path = Path(sys.argv[1])
-
-    if not raw_data_path.exists():
-        print(f"Error: raw data path does not exist: {raw_data_path}", file=sys.stderr)
-        sys.exit(1)
-
-    # Create ALFOSC instrument instance
-    alfosc = ALFOSC()
-    
-    pipeline = ReductionPipeline(alfosc, raw_data_path)
-
-    pipeline.run_pipeline()

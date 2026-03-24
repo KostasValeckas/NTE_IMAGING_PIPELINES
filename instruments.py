@@ -1,21 +1,8 @@
 from dataclasses import dataclass
 from typing import Optional
+import os
 from enum import Enum
-
-
-class ImageType(Enum):
-    BIAS = "BIAS"
-    DARK = "DARK"
-    FLAT = "FLAT"
-    SCIENCE = "SCIENCE"
-
-
-@dataclass
-class FitsHeaderEntry:
-    key: str
-    value: Optional[str] = None
-    comment: Optional[str] = None
-
+from datatypes import ImageType
 
 @dataclass
 class Detector:
@@ -25,8 +12,8 @@ class Detector:
     dark_current: Optional[tuple[str, int]] = None
     pixel_scale: Optional[tuple[str, int]] = None
     field_of_view: Optional[tuple[str, int]] = None
-    window_keyword: Optional[tuple[str, int]] = (None,)
-    bin_x_keyword: Optional[tuple[str, int]] = (None,)
+    window_keyword: Optional[tuple[str, int]] = None
+    bin_x_keyword: Optional[tuple[str, int]] = None
     bin_y_keyword: Optional[tuple[str, int]] = None
 
 
@@ -36,6 +23,7 @@ class Telescope:
     aperture: Optional[tuple[str, int]] = None
     focal_length: Optional[tuple[str, int]] = None
     location: Optional[tuple[str, int]] = None
+
 
 
 class Instrument:
@@ -86,41 +74,42 @@ class Instrument:
         return None
 
 
-    def get_header_value(self, hdul, keyword_tuple) -> Optional[str]:
-        """Helper method to extract header value based on provided keyword tuple"""
-        if keyword_tuple is None or len(keyword_tuple) != 2:
-            return None
-        
-        keys, hdu_index = keyword_tuple
-        if not isinstance(keys, list):
-            keys = [keys]
-        
-        for key in keys:
-            try:
-                value = hdul[hdu_index].header[key]
-                if value is not None:
-                    return value
-            except KeyError:
-                continue
-        
-        return None
+
+class ALFOSC(Instrument):
+    """ALFOSC instrument configuration for NOT telescope"""
     
-
-    def get_header_values(self, hdul, keyword_tuple) -> Optional[dict[str, Optional[str]]]:
-        """Helper method to extract multiple header values based on provided keyword tuple"""
-        if keyword_tuple is None or len(keyword_tuple) != 2:
-            return None
+    def __init__(self):
+        # Define ALFOSC CCD detector parameters
+        alfosc_ccd = Detector(
+            window_keyword=("DETWIN1", 0),
+            bin_x_keyword=("DETXBIN", 0),
+            bin_y_keyword=("DETYBIN", 0),
+        )
         
-        keys, hdu_index = keyword_tuple
-        if not isinstance(keys, list):
-            keys = [keys]
-        
-        values = []
-        for key in keys:
-            try:
-                value = hdul[hdu_index].header[key]
-                values.append(value)
-            except KeyError:
-                values.append(None)
+        # Initialize parent class with ALFOSC-specific parameters
+        super().__init__(
+            name = "ALFOSC",
+            detector=alfosc_ccd,
+            data_hdu_extension=1,
+            filter_keyword=(["ALFLTNM", "FAFLTNM", "FBFLTNM"], 0),
+            obsmode_keyword=("OBS_MODE", 0),
+            imaging_obsmode_keyword=("IMAGING", 0),
+            imagetype_keyword=("IMAGETYP", 0),
+            bias_keyword=["BIAS"],
+            dark_keyword=["DARK"],
+            flat_keyword=["FLAT,SKY"],
+            science_keyword=["OBJECT"],
+            object_keyword=("OBJECT", 0)
+        )
 
-        return values
+    def match_image_type(self, hdul) -> Optional[ImageType]:
+
+        if hdul[0].header["IMAGETYP"] in self.bias_keyword:
+            return ImageType.BIAS
+        
+        if hdul[0].header["IMAGETYP"] in self.flat_keyword and hdul[0].header["ALAPRTNM"] == "Open":
+            return ImageType.FLAT
+        
+        if hdul[0].header["IMAGETYP"] in self.science_keyword and hdul[0].header["ALAPRTNM"] == "Open" and hdul[0].header["OBS_MODE"] == "IMAGING":
+            return ImageType.SCIENCE
+        

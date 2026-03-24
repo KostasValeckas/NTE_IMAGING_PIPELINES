@@ -39,55 +39,6 @@ class ReductionPipeline:
         self.master_flats = {}
         self.bad_pixel_masks_flats = {}
 
-    def sort_data(self):
-
-        all_files = os.listdir(self.raw_data_path)
-
-        bias_files = []
-        dark_files = []
-        flat_files = []
-        science_files = []
-
-        for filename in all_files:
-            # Skip non-FITS files
-            if not filename.lower().endswith((".fits", ".fit", ".fts")):
-                continue
-
-            filepath = os.path.join(self.raw_data_path, filename)
-
-            # Open file and get HDUList (match_image_type now expects the whole HDU/HDUList)
-            hdul = self.open_fits_file(filepath)
-            if hdul is None:
-                self.logger.warning(f"Could not open {filename} to read headers, skipping")
-                continue
-
-            try:
-                image_type = self.instrument.match_image_type(hdul)
-                print(f"File: {filename}, matched image type: {image_type}")
-            except Exception as e:
-                self.logger.warning(f"match_image_type failed for {filename}: {e}")
-                continue
-
-            if image_type == ImageType.BIAS:
-                bias_files.append(filepath)
-            elif image_type == ImageType.DARK:
-                dark_files.append(filepath)
-            elif image_type == ImageType.FLAT:
-                flat_files.append(filepath)
-            elif image_type == ImageType.SCIENCE:
-                science_files.append(filepath)
-            else:
-                self.logger.warning(f"Unknown image type for {filename}")
-
-        self.bias_files = bias_files.copy()
-        self.dark_files = dark_files.copy()
-        self.flat_files = flat_files.copy()
-        self.science_files = science_files.copy()
-
-        self.logger.info(
-            f"Sorted files: {len(bias_files)} bias, {len(dark_files)} dark, "
-            f"{len(flat_files)} flat, {len(science_files)} science"
-        )
 
     def create_setup_table(self):
 
@@ -1326,7 +1277,7 @@ class ReductionPipeline:
                     bias_vals = masked_bias.compressed() if hasattr(masked_bias, "compressed") else np.asarray(masked_bias).ravel()
                     bmin, bmax = safe_percentiles(bias_vals)
 
-                if False:
+                if True:
 
                     # create subplots: 2x2 if bias exists, else 1x3
                     if has_bias:
@@ -1436,10 +1387,91 @@ class ReductionPipeline:
                         if n_frames < 3:
                             self.logger.info(f"Not enough frames to compute median for object={obj_key} filter={filter_key}: found {n_frames} (need >= 3), skipping")
                             continue
-                        
-                        # compute median ignoring NaNs
-                        median_img = np.nanmedian(cube, axis=0)
 
+                        sum_img = np.nansum(cube, axis=0)
+                        plt.imshow(sum_img, origin="lower", cmap="inferno")
+                        plt.title(f"Sum of {n_frames} frames for object={obj_key} filter={filter_key}")
+                        plt.show()
+                        
+                        # compute sigma-clipped median using ccdproc for better outlier rejection
+                        # Convert cube to list of CCDData objects for ccdproc
+                        ccd_list = []
+                        for i in range(cube.shape[0]):
+                            frame = cube[i]
+                            ccd_data = CCDData(frame, unit=u.adu)
+                            ccd_list.append(ccd_data)
+                        
+                        # Create combiner with sigma clipping
+                        combiner = Combiner(ccd_list)
+                        combiner.sigma_clipping(low_thresh=0.5, high_thresh=0.5, func=np.ma.median)
+                        
+                        # Combine using sigma-clipped median
+                        median_combined = combiner.median_combine()
+                        median_img = median_combined.data
+
+                        # plot the median together with all frames used to create it
+                        try:
+                            n_frames = int(cube.shape[0])
+                            n_panels = n_frames + 1  # median + each frame
+
+                            # limit the number of panels shown to avoid huge figures
+                            max_panels = 24
+                            if n_panels > max_panels:
+                                self.logger.info(f"Too many frames ({n_frames}) to display; showing first {max_panels-1} frames plus median")
+                                n_display = max_panels
+                            else:
+                                n_display = n_panels
+
+                            ncols = min(6, n_display)
+                            nrows = int(math.ceil(n_display / ncols))
+
+                            fig, axs = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3 * nrows))
+                            axs_flat = axs.flatten() if hasattr(axs, "flatten") else np.array([axs])
+
+                            # compute a common display stretch from the data used (5th-95th percentiles)
+                            all_vals = cube.reshape(-1)
+                            finite_vals = all_vals[np.isfinite(all_vals)]
+                            if finite_vals.size == 0:
+                                vmin, vmax = 0.0, 1.0
+                            else:
+                                vmin = float(np.nanpercentile(finite_vals, 5))
+                                vmax = float(np.nanpercentile(finite_vals, 95))
+                                if not np.isfinite(vmin) or not np.isfinite(vmax) or vmin == vmax:
+                                    vmin = float(np.nanmin(finite_vals))
+                                    vmax = float(np.nanmax(finite_vals)) if np.isfinite(np.nanmax(finite_vals)) else vmin + 1.0
+
+                            # Plot median in the first panel
+                            ax0 = axs_flat[0]
+                            im = ax0.imshow(median_img, origin="lower", cmap="viridis", vmin=vmin, vmax=vmax)
+                            ax0.set_title(f"Median ({n_frames} frames)")
+                            ax0.axis("off")
+
+                            # Plot up to (n_display-1) frames (median occupies index 0)
+                            n_frames_to_show = n_display - 1
+                            for i in range(n_frames_to_show):
+                                ax = axs_flat[i + 1]
+                                frame = cube[i]
+                                ax.imshow(frame, origin="lower", cmap="gray", vmin=vmin, vmax=vmax)
+                                ax.set_title(f"Frame {i}")
+                                ax.axis("off")
+
+                            # Turn off any unused subplots
+                            for j in range(n_display, axs_flat.size):
+                                try:
+                                    axs_flat[j].axis("off")
+                                except Exception:
+                                    pass
+
+                            # shared colorbar for the figure
+                            try:
+                                fig.colorbar(im, ax=axs_flat.tolist(), fraction=0.02, pad=0.01)
+                            except Exception:
+                                pass
+
+                            plt.tight_layout()
+                            plt.show()
+                        except Exception as e:
+                            self.logger.warning(f"Failed to plot median + frames for object={obj_key} filter={filter_key}: {e}")
 
                         # subtract the median from every frame in the datacube and display the residuals
                         diffs = cube - median_img[np.newaxis, ...]  # broadcast median to cube shape
@@ -1502,6 +1534,30 @@ class ReductionPipeline:
                             plt.tight_layout()
                             plt.show()
 
+                            # plot a 1D vertical slice down the middle of the median-subtracted image
+                            try:
+                                ny, nx = frame.shape
+                                mid_col = nx // 2
+                                rows = np.arange(ny)
+
+                                diff_col = frame[:, mid_col]
+                                orig_col = orig[:, mid_col]
+                                med_col = median_img[:, mid_col]
+
+                                plt.figure(figsize=(8, 4))
+                                plt.plot(rows, diff_col, marker='.', linestyle='-', label='Diff (frame - median)', color='C0')
+                                plt.plot(rows, orig_col, marker='.', linestyle='--', label='Original', color='C1', alpha=0.7)
+                                plt.plot(rows, med_col, marker='.', linestyle=':', label='Median', color='C2', alpha=0.7)
+                                plt.xlabel('Row (pixel)')
+                                plt.ylabel('ADU')
+                                plt.title(f'Central column slice (col={mid_col}) Object={obj_key} Filter={filter_key} Frame={i}')
+                                plt.legend(loc='best')
+                                plt.grid(alpha=0.3, linestyle=':')
+                                plt.tight_layout()
+                                plt.show()
+                            except Exception as e:
+                                self.logger.warning(f"Could not plot central column slice for object={obj_key} filter={filter_key} frame={i}: {e}")
+
                     
                     except Exception as e:
                         self.logger.error(f"Failed to display median for object={obj_key} filter={filter_key}: {e}")
@@ -1512,7 +1568,7 @@ class ReductionPipeline:
 
     def run_pipeline(self):
 
-        if False:
+        if True:
 
             self.sort_data()
 
@@ -1529,7 +1585,7 @@ class ReductionPipeline:
             self.reduce()
 
 
-        if True:
+        if False:
 
             self.load_bias_configurations()
 
