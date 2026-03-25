@@ -75,5 +75,9 @@ class ReductionPipeline:
         )
 
         self.master_biases = self.instrument.make_master_bias(
-            self.raw_data_path, self.output_dir, self.bias_configurations, self.logger
+            self.raw_data_path,
+            self.output_dir,
+            self.bias_configurations,
+            self.logger,
+            show_plots=self.show_plots,
         )

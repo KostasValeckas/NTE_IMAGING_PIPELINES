@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import astropy.units as u
 from astropy.io import fits
+from datetime import datetime
 
 
 @dataclass
@@ -83,6 +84,70 @@ class Instrument:
         # Return None to indicate "no determination" at this level.
         return None
 
+    def update_bad_pixel_map(
+        self, master_frame, logger, bad_pixel_mask=None, n_median_deviation=0.2, show_plots=False
+    ):
+
+        # create a new bad pixel mask based on sigma clipping the master frame
+        if bad_pixel_mask is None:
+            bad_pixel_mask = np.zeros(master_frame.shape, dtype=bool)
+
+        median = np.nanmedian(master_frame)
+
+
+        zero_pixels = master_frame == 0
+        logger.info(f"Identified {np.sum(zero_pixels)} zero-value pixels in master frame")
+
+
+        logger.info(f"Masking pixels that deviate from median by more than {n_median_deviation} medians (median={median:.2f})")
+        new_bad_pixels = np.abs(master_frame - median) > (n_median_deviation * median)
+
+        all_bad_pixels = zero_pixels | new_bad_pixels
+
+        # combine with existing bad pixel mask
+
+        combined_bad_pixel_mask = bad_pixel_mask | all_bad_pixels
+
+        logger.info(
+            f"Identified {np.sum(all_bad_pixels)} new bad pixels."
+        )
+
+        masked_array = np.ma.masked_array(master_frame, mask=combined_bad_pixel_mask)
+
+        # plot histogram of pixel values, excluding NaNs
+        data_for_hist = masked_array.flatten()
+        data_for_hist = data_for_hist[~np.isnan(data_for_hist)]
+        n_bins = int(np.sqrt(data_for_hist.size))
+        plt.figure()
+        plt.hist(data_for_hist, bins=n_bins, color="gray", edgecolor="black")
+        plt.xlabel("Pixel Value")
+        plt.ylabel("Frequency")
+        plt.title("Pixel Value Distribution - Everything outside the rejection thresholds is masked as bad pixel")
+
+        # vertical lines for median and rejection thresholds
+        plt.axvline(median, color="red", linestyle="-", linewidth=1.5, label=f"Median = {median:.2f}")
+        lower = median - n_median_deviation * median
+        upper = median + n_median_deviation * median
+        plt.axvline(lower, color="orange", linestyle="--", linewidth=1.2, label=f"Reject < {lower:.2f}")
+        plt.axvline(upper, color="orange", linestyle="--", linewidth=1.2, label=f"Reject > {upper:.2f}")
+        plt.legend(loc="upper right")
+
+        info_text = f"median={median:.2f}, rejection: |value - median| > {n_median_deviation}×median (±{n_median_deviation*median:.2f})"
+        logger.info(info_text)
+
+        # annotate plot with the same info
+        plt.text(0.01, 0.95, info_text, transform=plt.gca().transAxes, fontsize=9, va="top")
+        plt.grid()
+
+        plt.xlim(median - n_median_deviation * median * 1.1, median + n_median_deviation * median * 1.1)
+
+        if show_plots:
+            plt.show()
+        else:
+            plt.close()
+
+        return combined_bad_pixel_mask
+
     def make_master_bias(
         self,
         input_dir,
@@ -93,11 +158,13 @@ class Instrument:
         show_plots=False,
     ):
 
+        if bad_pixel_masks is None:
+            bad_pixel_masks = {}
+
         for key, value in bias_setup.items():
             logger.info(
                 f"Making master bias for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}) with {len(value['files'])} bias frames"
             )
-
 
             bias_stack = []
 
@@ -134,7 +201,19 @@ class Instrument:
                 sigma_clip_high_thresh=2,
             )
 
-            plt.close()  
+            bad_pixel_mask = self.update_bad_pixel_map(
+                master_bias.data,
+                logger,
+                bad_pixel_masks[key] if key in bad_pixel_masks else None,
+                show_plots=show_plots,
+            )
+
+            if key not in bad_pixel_masks:
+                bad_pixel_masks[key] = bad_pixel_mask
+            else:
+                bad_pixel_masks[key] = bad_pixel_masks[key] | bad_pixel_mask
+
+            plt.close()
 
             plt.imshow(
                 master_bias.data,
@@ -143,7 +222,9 @@ class Instrument:
                 vmax=np.percentile(master_bias.data, 95),
             )
             plt.colorbar()
-            plt.title(f"Master Bias for window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}")
+            plt.title(
+                f"Master Bias for window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}"
+            )
 
             # save plot to the output directory
             plot_path = os.path.join(output_dir, f"master_bias_{key}.png")
@@ -152,36 +233,47 @@ class Instrument:
             if show_plots:
                 plt.show()
 
+            # open the middle frame, copy its HDUList, replace the data with master_bias and write to disk
+            mid_idx = len(value["files"]) // 2
+            mid_file = value["files"][mid_idx]
+            mid_path = os.path.join(input_dir, mid_file)
 
-            middle_header = fits.Header()
+            hdul_mid = open_fits_file(mid_path, logger)
 
-            master_bias_filename = os.path.join(output_dir, f"master_bias_{key}.fits")  
+            # deep-copy all HDUs so we don't mutate the original HDUList in memory
+            hdul_copy = fits.HDUList([hdu.copy() for hdu in hdul_mid])
+
+            # target HDU containing image data
+            data_hdu = hdul_copy[self.data_hdu_extension]
+
+            # directly assign master bias data (do not check or cast data types)
+            data_hdu.data = master_bias.data
+
+            # update header to record creation
             try:
-                # Write the combined master bias using a PrimaryHDU to avoid extension-specific
-                # header keywords (e.g. XTENSION) causing FITS validation errors when writing.
-                data_out = master_bias.data.astype(np.float32)
+                data_hdu.header["IMAGETYP"] = "MASTER_BIAS"
+                data_hdu.header.add_history(f"Master bias created from stack {key}")
+                data_hdu.header.add_history(
+                    f"Created: {datetime.utcnow().isoformat()} UTC"
+                )
+            except Exception:
+                # ignore header update errors
+                pass
 
-                # Try to preserve a cleaned copy of the original header if available
-                hdr = None
-                if hasattr(master_bias, 'meta') and isinstance(master_bias.meta, dict):
-                    src_hdr = master_bias.meta.get('header')
-                    if isinstance(src_hdr, fits.Header):
-                        hdr = src_hdr.copy()
-                        # Remove extension-specific / illegal keywords for a primary HDU
-                        for _k in ('XTENSION', 'PCOUNT', 'GCOUNT', 'EXTNAME', 'EXTVER',
-                                   'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2'):
-                            if _k in hdr:
-                                del hdr[_k]
+            # write master bias FITS to output directory
+            out_path = os.path.join(output_dir, f"master_bias_{key}.fits")
+            hdul_copy.writeto(out_path, overwrite=True)
+            logger.info(f"Wrote master bias to {out_path}")
 
-                if hdr is None:
-                    hdr = fits.Header()
-
-                fits.PrimaryHDU(data_out, header=hdr).writeto(master_bias_filename, overwrite=True)
-                logger.info(f"Master bias saved to {master_bias_filename}")
-            except Exception as e:
-                logger.error(f"Failed to save master bias to {master_bias_filename}: {e}")
-                logger.error("Master bias creation failed, exiting...")
-                exit(-1)
+            # close HDULists
+            try:
+                hdul_mid.close()
+            except Exception:
+                pass
+            try:
+                hdul_copy.close()
+            except Exception:
+                pass
 
         logger.info("Master bias creation complete.")
 
