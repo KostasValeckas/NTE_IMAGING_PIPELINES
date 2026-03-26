@@ -161,6 +161,9 @@ class Instrument:
         if bad_pixel_masks is None:
             bad_pixel_masks = {}
 
+
+        master_biases = {}
+
         for key, value in bias_setup.items():
             logger.info(
                 f"Making master bias for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}) with {len(value['files'])} bias frames"
@@ -249,6 +252,12 @@ class Instrument:
             # directly assign master bias data (do not check or cast data types)
             data_hdu.data = master_bias.data
 
+
+            #append the bad pixel mask as a new HDU to the HDUList
+            bad_pixel_hdu = fits.ImageHDU(data=bad_pixel_mask.astype(np.uint8), name="BAD_PIXEL_MASK")
+            bad_pixel_hdu.header["BPM_KEY"] = key
+            hdul_copy.append(bad_pixel_hdu)
+
             # update header to record creation
             try:
                 data_hdu.header["IMAGETYP"] = "MASTER_BIAS"
@@ -275,7 +284,12 @@ class Instrument:
             except Exception:
                 pass
 
+            master_biases[key] = master_bias
+
         logger.info("Master bias creation complete.")
+
+        return master_biases, bad_pixel_masks
+
 
 
 class ALFOSC(Instrument):
