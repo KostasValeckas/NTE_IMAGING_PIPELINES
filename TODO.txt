@@ -1,5 +1,3 @@
-* Fits header writing for mixed primary and secondary
 * One method for writing json configuration files
-* One method for median stacking 2 sigma clipped images
 * Overscan strip in bias
-* One method for fits-writing
+* One method for creating tables

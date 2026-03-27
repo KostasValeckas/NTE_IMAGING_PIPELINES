@@ -1,6 +1,6 @@
 from instruments import Instrument
 from logger import init_logger
-from sorting import sort_data, create_setup_table, create_bias_table
+from sorting import sort_data, create_setup_table, create_bias_table, create_flat_table
 
 
 class ReductionPipeline:
@@ -41,7 +41,6 @@ class ReductionPipeline:
         self.bad_pixel_masks = None
 
         self.master_flats = None
-        self.bad_pixel_masks = None
 
     def run_pipeline(self):
 
@@ -74,10 +73,30 @@ class ReductionPipeline:
             self.bias_files,
         )
 
-        self.master_biases = self.instrument.make_master_bias(
+        self.master_biases, self.bad_pixel_masks = self.instrument.make_master_bias(
             self.raw_data_path,
             self.output_dir,
             self.bias_configurations,
             self.logger,
             show_plots=self.show_plots,
+        )
+
+        self.flat_configurations = create_flat_table(
+            self.instrument,
+            self.logger,
+            self.raw_data_path,
+            self.output_dir,
+            self.setup_table,
+            self.flat_files,
+        )
+
+        self.master_flats = self.instrument.make_master_flat(
+            self.raw_data_path,
+            self.output_dir,
+            self.flat_configurations,
+            self.logger,
+            bad_pixel_masks = self.bad_pixel_masks,
+            bias_frames = self.master_biases,
+            science_to_bias_map= self.science_to_bias_map,
+            show_plots=self.show_plots
         )

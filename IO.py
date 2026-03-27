@@ -1,8 +1,10 @@
+from datetime import datetime
 import numpy as np
 import os
 from astropy.io import fits
 from enum import Enum
 from logging import Logger
+from datatypes import Processed_frame
 
 
 def open_fits_file(filepath: str, logger: Logger):
@@ -62,3 +64,85 @@ def get_header_values(hdul, keyword_tuple, logger: Logger):
         values.append(value)
 
     return values
+
+
+def write_frame(
+    instrument,
+    hdul,
+    master_frame,
+    write_name,
+    output_path,
+    logger: Logger,
+    bad_pixel_mask=None,
+    comment=None,
+    header_updates=None,
+):
+    """
+    header_updates should be a dict of {keyword: value} pairs to update in the header of the data HDU, if provided. If not provided, no header updates will be made.
+    """
+
+    data_hdu = hdul[instrument.data_hdu_extension]
+
+    data_hdu.data = master_frame
+
+    # append the bad pixel mask as a new HDU to the HDUList
+    bad_pixel_hdu = fits.ImageHDU(
+        data=bad_pixel_mask.astype(np.uint8), name="BAD_PIXEL_MASK"
+    )
+
+    bad_pixel_hdu.header.add_comment("Bad pixel mask for the frame")
+    hdul.append(bad_pixel_hdu)
+
+    # update header to record creation
+    try:
+        data_hdu.header.add_history(f"Created: {datetime.utcnow().isoformat()} UTC")
+
+        if comment is not None:
+            data_hdu.header.add_comment(comment)
+
+        if header_updates is not None:
+            for key, value in header_updates.items():
+                data_hdu.header[key] = value
+
+    except Exception as e:
+        # push through header update errors
+        logger.warning(
+            f"Failed to update header for {write_name} due to {e}, proceeding without header updates."
+        )
+        pass
+
+    output_path = os.path.join(output_path, write_name)
+
+    try:
+        hdul.writeto(output_path, overwrite=True)
+        logger.info(f"Successfully wrote master frame to {output_path}")
+    except Exception as e:
+        logger.error(f"Error writing frame to {output_path}: {e}")
+
+    # close HDULists but no biggie if hiccup
+    try:
+        hdul.close()
+    except Exception as e:
+        logger.warning(f"Error closing HDUList after writing {output_path}: {e}")
+        pass
+
+
+def read_frame(output_path, name, instrument, logger: Logger):
+
+    file_path = os.path.join(output_path, name)
+
+    try:
+        hdul = open_fits_file(file_path, logger)
+
+    except Exception as e:
+        logger.error(f"Error reading frame from {file_path}: {e}")
+        return None
+    
+    if hdul is None:
+        logger.error(f"Failed to read frame from {file_path}, HDUList is None.")
+        return None
+
+    frame_data = hdul[instrument.data_hdu_extension].data
+    bpm = hdul["BAD_PIXEL_MASK"].data if "BAD_PIXEL_MASK" in hdul else None
+
+    return Processed_frame(hdul, frame_data, bpm)

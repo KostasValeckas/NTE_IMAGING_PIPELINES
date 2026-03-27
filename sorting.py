@@ -155,6 +155,7 @@ def create_setup_table(
 
     return setup_table
 
+#TODO see if it makes sense to refactor table crreation into one generic
 
 def create_bias_table(
     instrument: Instrument,
@@ -235,3 +236,68 @@ def create_bias_table(
         )
 
     return bias_table, science_to_bias_map
+
+def create_flat_table(
+    instrument: Instrument,
+    logger: Logger,
+    input_dir: str,
+    output_dir: str,
+    setup_table,
+    flat_file_list,
+):
+    
+    flat_table = {}
+
+    for setup_idx, setup in setup_table.items():
+
+        # flats setup match science directly, so we just copy over
+        flat_table[setup_idx] = {
+            "window": setup["window"],
+            "bin_x": setup["bin_x"],
+            "bin_y": setup["bin_y"],
+            "filter": setup["filter"],
+            "files": [],
+        }
+
+    for flat_file in flat_file_list:
+
+        path = os.path.join(input_dir, flat_file)
+
+        hdul = open_fits_file(path, logger)
+
+        window = get_header_value(hdul, instrument.detector.window_keyword, logger)
+
+        bin_x = get_header_value(hdul, instrument.detector.bin_x_keyword, logger)
+
+        bin_y = get_header_value(hdul, instrument.detector.bin_y_keyword, logger)
+
+        filter_names = get_header_values(hdul, instrument.filter_keyword, logger)
+
+        flat_key = (window, bin_x, bin_y, filter_names)
+
+        # find the matching setup index
+        matched_setup_idx = None
+        for setup_idx, setup in setup_table.items():
+            setup_key = (setup["window"], setup["bin_x"], setup["bin_y"], setup["filter"])
+            if flat_key == setup_key:
+                matched_setup_idx = setup_idx
+                break
+
+        if matched_setup_idx is not None:
+            flat_table[matched_setup_idx]["files"].append(flat_file)
+        else:
+            logger.warning(
+                f"Flat file {flat_file} has no matching setup key {flat_key}"
+            )
+
+    # write the flat table to disc
+    flat_table_filename = os.path.join(output_dir, "flat_table.json")
+
+    try:
+        with open(flat_table_filename, "w") as f:
+            json.dump(flat_table, f, indent=4)
+            logger.info(f"Flat table written to {flat_table_filename}")
+    except Exception as e:
+        logger.error(f"Failed to write flat table to {flat_table_filename}: {e}")
+
+    return flat_table

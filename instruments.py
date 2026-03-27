@@ -4,7 +4,7 @@ import os
 from enum import Enum
 from datatypes import ImageType
 from ccdproc import combine, CCDData
-from IO import open_fits_file
+from IO import open_fits_file, write_frame, read_frame
 import matplotlib.pyplot as plt
 import numpy as np
 import astropy.units as u
@@ -85,7 +85,12 @@ class Instrument:
         return None
 
     def update_bad_pixel_map(
-        self, master_frame, logger, bad_pixel_mask=None, n_median_deviation=0.2, show_plots=False
+        self,
+        master_frame,
+        logger,
+        bad_pixel_mask=None,
+        n_median_deviation=0.2,
+        show_plots=False,
     ):
 
         # create a new bad pixel mask based on sigma clipping the master frame
@@ -94,12 +99,14 @@ class Instrument:
 
         median = np.nanmedian(master_frame)
 
-
         zero_pixels = master_frame == 0
-        logger.info(f"Identified {np.sum(zero_pixels)} zero-value pixels in master frame")
+        logger.info(
+            f"Identified {np.sum(zero_pixels)} zero-value pixels in master frame"
+        )
 
-
-        logger.info(f"Masking pixels that deviate from median by more than {n_median_deviation} medians (median={median:.2f})")
+        logger.info(
+            f"Masking pixels that deviate from median by more than {n_median_deviation} medians (median={median:.2f})"
+        )
         new_bad_pixels = np.abs(master_frame - median) > (n_median_deviation * median)
 
         all_bad_pixels = zero_pixels | new_bad_pixels
@@ -108,9 +115,7 @@ class Instrument:
 
         combined_bad_pixel_mask = bad_pixel_mask | all_bad_pixels
 
-        logger.info(
-            f"Identified {np.sum(all_bad_pixels)} new bad pixels."
-        )
+        logger.info(f"Identified {np.sum(all_bad_pixels)} new bad pixels.")
 
         masked_array = np.ma.masked_array(master_frame, mask=combined_bad_pixel_mask)
 
@@ -122,24 +127,49 @@ class Instrument:
         plt.hist(data_for_hist, bins=n_bins, color="gray", edgecolor="black")
         plt.xlabel("Pixel Value")
         plt.ylabel("Frequency")
-        plt.title("Pixel Value Distribution - Everything outside the rejection thresholds is masked as bad pixel")
+        plt.title(
+            "Pixel Value Distribution - Everything outside the rejection thresholds is masked as bad pixel"
+        )
 
         # vertical lines for median and rejection thresholds
-        plt.axvline(median, color="red", linestyle="-", linewidth=1.5, label=f"Median = {median:.2f}")
+        plt.axvline(
+            median,
+            color="red",
+            linestyle="-",
+            linewidth=1.5,
+            label=f"Median = {median:.2f}",
+        )
         lower = median - n_median_deviation * median
         upper = median + n_median_deviation * median
-        plt.axvline(lower, color="orange", linestyle="--", linewidth=1.2, label=f"Reject < {lower:.2f}")
-        plt.axvline(upper, color="orange", linestyle="--", linewidth=1.2, label=f"Reject > {upper:.2f}")
+        plt.axvline(
+            lower,
+            color="orange",
+            linestyle="--",
+            linewidth=1.2,
+            label=f"Reject < {lower:.2f}",
+        )
+        plt.axvline(
+            upper,
+            color="orange",
+            linestyle="--",
+            linewidth=1.2,
+            label=f"Reject > {upper:.2f}",
+        )
         plt.legend(loc="upper right")
 
         info_text = f"median={median:.2f}, rejection: |value - median| > {n_median_deviation}×median (±{n_median_deviation*median:.2f})"
         logger.info(info_text)
 
         # annotate plot with the same info
-        plt.text(0.01, 0.95, info_text, transform=plt.gca().transAxes, fontsize=9, va="top")
+        plt.text(
+            0.01, 0.95, info_text, transform=plt.gca().transAxes, fontsize=9, va="top"
+        )
         plt.grid()
 
-        plt.xlim(median - n_median_deviation * median * 1.1, median + n_median_deviation * median * 1.1)
+        plt.xlim(
+            median - n_median_deviation * median * 1.1,
+            median + n_median_deviation * median * 1.1,
+        )
 
         if show_plots:
             plt.show()
@@ -160,7 +190,6 @@ class Instrument:
 
         if bad_pixel_masks is None:
             bad_pixel_masks = {}
-
 
         master_biases = {}
 
@@ -246,50 +275,114 @@ class Instrument:
             # deep-copy all HDUs so we don't mutate the original HDUList in memory
             hdul_copy = fits.HDUList([hdu.copy() for hdu in hdul_mid])
 
-            # target HDU containing image data
-            data_hdu = hdul_copy[self.data_hdu_extension]
-
-            # directly assign master bias data (do not check or cast data types)
-            data_hdu.data = master_bias.data
-
-
-            #append the bad pixel mask as a new HDU to the HDUList
-            bad_pixel_hdu = fits.ImageHDU(data=bad_pixel_mask.astype(np.uint8), name="BAD_PIXEL_MASK")
-            bad_pixel_hdu.header["BPM_KEY"] = key
-            hdul_copy.append(bad_pixel_hdu)
-
-            # update header to record creation
-            try:
-                data_hdu.header["IMAGETYP"] = "MASTER_BIAS"
-                data_hdu.header.add_history(f"Master bias created from stack {key}")
-                data_hdu.header.add_history(
-                    f"Created: {datetime.utcnow().isoformat()} UTC"
-                )
-            except Exception:
-                # ignore header update errors
-                pass
-
-            # write master bias FITS to output directory
-            out_path = os.path.join(output_dir, f"master_bias_{key}.fits")
-            hdul_copy.writeto(out_path, overwrite=True)
-            logger.info(f"Wrote master bias to {out_path}")
-
-            # close HDULists
-            try:
-                hdul_mid.close()
-            except Exception:
-                pass
-            try:
-                hdul_copy.close()
-            except Exception:
-                pass
+            write_frame(
+                self,
+                hdul_copy,
+                master_bias.data,
+                f"master_bias_{key}.fits",
+                output_dir,
+                logger,
+                bad_pixel_mask=bad_pixel_masks[key],
+                comment=f"Master bias created on {datetime.now().isoformat()} using {len(value['files'])} bias frames with 2-sigma clipping. Bad pixel mask updated based on deviation from median and zero-value pixels.",
+                header_updates={
+                    "MASTERBIAS": (True, "Indicates this frame is a master bias"),
+                    "BIASCNT": (len(value["files"]), "Number of bias frames combined"),
+                    "BIASWIN": (value["window"], "Window setting for this master bias"),
+                    "BIASBINX": (value["bin_x"], "Binning in X for this master bias"),
+                    "BIASBINY": (value["bin_y"], "Binning in Y for this master bias"),
+                },
+            )
 
             master_biases[key] = master_bias
 
         logger.info("Master bias creation complete.")
 
         return master_biases, bad_pixel_masks
+    
+    def make_master_flat(
+        self,
+        input_dir,
+        output_dir,
+        flat_setup,
+        logger,
+        bad_pixel_masks=None,
+        dark_frames = None,
+        bias_frames = None,
+        science_to_bias_map = None,
+        show_plots=False,
+        
+        ):
 
+
+
+        for key, value in flat_setup.items():
+
+            n_files = len(value["files"])
+
+            # if no files for this setup, skip
+            if n_files == 0:
+                logger.warning(
+                    f"No flat frames found for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}, filter: {value['filter']}), skipping master flat creation."
+                )
+                continue
+            
+            #TODO make this a fallback afterwards
+            if n_files < 3:
+                logger.warning(
+                    f"Only {n_files} flat frames found for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}, filter: {value['filter']}), master flat will not be optimal..."
+                )
+
+            logger.info(
+                f"Making master flat for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}, filter: {value['filter']}) with {n_files} flat frames"
+            )
+
+            skip_bias_correction = False
+            skip_dark_correction = False
+
+            if science_to_bias_map is None or science_to_bias_map[key] is None:
+                logger.warning(
+                    f"No bias key mapping found for flat setup key {key} in science_to_bias_map. Proceeding without dark or bias correction for flat frames in this setup."
+                )
+                skip_dark_correction = True
+                skip_bias_correction = True
+
+            # try loading dark frame if none are provided
+            if dark_frames is None and not skip_dark_correction:
+                dark_file_name = f"master_dark_{key}.fits"
+                dark_frame = read_frame(output_dir, dark_file_name, self, logger)
+                if dark_frame is None:
+                    logger.warning(
+                        f"No master dark found for key {key}. Proceeding without dark correction for flat frames in this setup."
+                    )
+                    skip_dark_correction = True
+                else:
+                    logger.info(
+                        f"Successfully loaded master dark for key {key} from disk. Will apply dark correction to flat frames in this setup."
+                    )
+
+            # try loading bias frame if none are provided
+            if bias_frames is None and not skip_bias_correction:
+                bias_key = science_to_bias_map[key] 
+                bias_file_name = f"master_bias_{bias_key}.fits"
+                bias_frame = read_frame(output_dir, bias_file_name, self, logger)
+                if bias_frame is None:
+                    logger.warning(
+                        f"No master bias found for key {bias_key} mapped from flat setup key {key}. Proceeding without bias correction for flat frames in this setup."
+                    )
+                    skip_bias_correction = True
+                else:
+                    logger.info(
+                        f"Successfully loaded master bias for key {bias_key} mapped from flat setup key {key} from disk. Will apply bias correction to flat frames in this setup."
+                        )
+
+            flat_stack = []
+    
+            for file in value["files"]:
+                print("File")
+                hdul = open_fits_file(file, logger)
+                flat_stack.append(hdul)
+
+        return None
 
 
 class ALFOSC(Instrument):
