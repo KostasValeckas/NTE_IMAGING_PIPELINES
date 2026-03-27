@@ -3,7 +3,7 @@ from typing import Optional
 import os
 from enum import Enum
 from datatypes import ImageType
-from ccdproc import combine, CCDData
+from ccdproc import combine, CCDData, subtract_dark, subtract_bias
 from IO import open_fits_file, write_frame, read_frame
 import matplotlib.pyplot as plt
 import numpy as np
@@ -96,6 +96,10 @@ class Instrument:
         # create a new bad pixel mask based on sigma clipping the master frame
         if bad_pixel_mask is None:
             bad_pixel_mask = np.zeros(master_frame.shape, dtype=bool)
+
+        # apply the existing bad pixel mask to the master frame is already provided
+        else:
+            master_frame = np.ma.masked_array(master_frame, mask=bad_pixel_mask)
 
         median = np.nanmedian(master_frame)
 
@@ -314,7 +318,6 @@ class Instrument:
         ):
 
 
-
         for key, value in flat_setup.items():
 
             n_files = len(value["files"])
@@ -326,7 +329,7 @@ class Instrument:
                 )
                 continue
             
-            #TODO make this a fallback afterwards
+            #TODO make this a fallback to query then calib database afterwards afterwards
             if n_files < 3:
                 logger.warning(
                     f"Only {n_files} flat frames found for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}, filter: {value['filter']}), master flat will not be optimal..."
@@ -336,8 +339,13 @@ class Instrument:
                 f"Making master flat for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}, filter: {value['filter']}) with {n_files} flat frames"
             )
 
+            # load the dark and bias masters
+
             skip_bias_correction = False
             skip_dark_correction = False
+
+            dark_frame = None
+            bias_frame = None
 
             if science_to_bias_map is None or science_to_bias_map[key] is None:
                 logger.warning(
@@ -374,13 +382,118 @@ class Instrument:
                     logger.info(
                         f"Successfully loaded master bias for key {bias_key} mapped from flat setup key {key} from disk. Will apply bias correction to flat frames in this setup."
                         )
+                    
+            key_to_bias = science_to_bias_map[key]
+
+            # Mainly for debugging - if this is still None abort
+            if key_to_bias == None:
+                logger.error(
+                    f"Science_to_bias_map entry for flat setup key {key} is None."
+                    "Contact developers"
+
+                )
+                exit(-1)
+            
+            try:
+                if dark_frame is None and not skip_dark_correction: 
+                    dark_frame = dark_frames[key_to_bias]
+            except KeyError:
+                logger.warning(
+                    f"No master dark found for key {key_to_bias} mapped from flat setup key {key} in provided dark_frames. Proceeding without dark correction for flat frames in this setup."
+                )
+                skip_dark_correction = True
+
+            if bias_frame is None and not skip_bias_correction:
+                try:
+                    bias_frame = bias_frames[key_to_bias]
+                except KeyError:
+                    logger.warning(
+                        f"No master bias found for key {key_to_bias} mapped from flat setup key {key} in provided bias_frames. Proceeding without bias correction for flat frames in this setup."
+                    )
+                    skip_bias_correction = True
+
 
             flat_stack = []
     
             for file in value["files"]:
-                print("File")
-                hdul = open_fits_file(file, logger)
-                flat_stack.append(hdul)
+
+                filepath = os.path.join(input_dir, file)
+
+                hdul = open_fits_file(filepath, logger)
+
+                # create CCDData directly from the numpy array and keep header/meta
+                try:
+                    data = hdul[self.data_hdu_extension].data
+                    hdr = (
+                        hdul[self.data_hdu_extension].header
+                        if len(hdul) > self.data_hdu_extension
+                        else None
+                    )
+                    ccd_data = CCDData(
+                        data,
+                        unit=u.adu,
+                        meta={"header": hdr} if hdr is not None else None,
+                    )
+
+                    
+                except Exception:
+                    # fallback: create CCDData without header
+                    ccd_data = CCDData(hdul[self.data_hdu_extension].data, unit=u.adu)
+                
+                if not skip_dark_correction:
+
+                    logger.info(
+                        f"Applying dark correction to flat frame {file} using master dark for key {key_to_bias} mapped from flat setup key {key}."
+                    )
+                    
+                    ccd_data = subtract_dark(
+                        ccd_data, dark_frame
+                    )
+
+                if not skip_bias_correction:
+
+                    logger.info(
+                        f"Applying bias correction to flat frame {file} using master bias for key {key_to_bias} mapped from flat setup key {key}."
+                    )
+
+                    ccd_data = subtract_bias(
+                        ccd_data, bias_frame
+                    )
+
+                flat_stack.append(ccd_data)
+
+            # 2 sigma clipped median master flat
+            master_flat = combine(
+                flat_stack,
+                method="median",
+                sigma_clip=True,
+                sigma_clip_low_thresh=2,
+                sigma_clip_high_thresh=2,
+            )
+
+            bpm_copy = bad_pixel_masks[key_to_bias].copy()
+
+            bad_pixel_mask = self.update_bad_pixel_map(
+                master_flat.data,
+                logger,
+                bpm_copy,
+                show_plots=show_plots,
+            )
+
+
+            masked_flat = np.ma.masked_array(master_flat.data, mask=bad_pixel_mask)
+
+            plt.imshow(
+                masked_flat,
+                cmap="gray",
+                origin='lower'
+            )
+
+            plt.show()
+
+
+
+
 
         return None
 
