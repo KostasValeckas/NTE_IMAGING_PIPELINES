@@ -81,14 +81,23 @@ def write_frame(
     header_updates should be a dict of {keyword: value} pairs to update in the header of the data HDU, if provided. If not provided, no header updates will be made.
     """
 
+    #print type of maskter bias and bad pixel mask for debugging
+    print(f"Type of master_frame: {type(master_frame)}, shape: {master_frame.shape}")
+    print(f"Type of bad_pixel_mask: {type(bad_pixel_mask)}")
+
     data_hdu = hdul[instrument.data_hdu_extension]
 
     data_hdu.data = master_frame
 
+
     # append the bad pixel mask as a new HDU to the HDUList
+    orig_header = hdul[instrument.data_hdu_extension].header
     bad_pixel_hdu = fits.ImageHDU(
         data=bad_pixel_mask.astype(np.uint8), name="BAD_PIXEL_MASK"
     )
+
+    # ensure the extension name is correct
+    bad_pixel_hdu.header["EXTNAME"] = "BAD_PIXEL_MASK"
 
     bad_pixel_hdu.header.add_comment("Bad pixel mask for the frame")
     hdul.append(bad_pixel_hdu)

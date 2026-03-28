@@ -93,17 +93,18 @@ class Instrument:
         show_plots=False,
     ):
 
+        
         # create a new bad pixel mask based on sigma clipping the master frame
         if bad_pixel_mask is None:
             bad_pixel_mask = np.zeros(master_frame.shape, dtype=bool)
 
-        # apply the existing bad pixel mask to the master frame is already provided
-        else:
-            master_frame = np.ma.masked_array(master_frame, mask=bad_pixel_mask)
+        master_frame_copy = master_frame.copy()
+        master_frame_masked = np.ma.masked_array(master_frame_copy, mask=bad_pixel_mask)
+        
 
-        median = np.nanmedian(master_frame)
+        median = np.nanmedian(master_frame_masked)
 
-        zero_pixels = master_frame == 0
+        zero_pixels = master_frame_masked == 0
         logger.info(
             f"Identified {np.sum(zero_pixels)} zero-value pixels in master frame"
         )
@@ -111,7 +112,7 @@ class Instrument:
         logger.info(
             f"Masking pixels that deviate from median by more than {n_median_deviation} medians (median={median:.2f})"
         )
-        new_bad_pixels = np.abs(master_frame - median) > (n_median_deviation * median)
+        new_bad_pixels = np.abs(master_frame_masked - median) > (n_median_deviation * median)
 
         all_bad_pixels = zero_pixels | new_bad_pixels
 
@@ -121,7 +122,7 @@ class Instrument:
 
         logger.info(f"Identified {np.sum(all_bad_pixels)} new bad pixels.")
 
-        masked_array = np.ma.masked_array(master_frame, mask=combined_bad_pixel_mask)
+        masked_array = np.ma.masked_array(master_frame_masked, mask=combined_bad_pixel_mask)
 
         # plot histogram of pixel values, excluding NaNs
         data_for_hist = masked_array.flatten()
@@ -180,7 +181,7 @@ class Instrument:
         else:
             plt.close()
 
-        return combined_bad_pixel_mask
+        return np.asarray(combined_bad_pixel_mask, dtype =bool)
 
     def make_master_bias(
         self,
@@ -189,7 +190,7 @@ class Instrument:
         bias_setup,
         logger,
         bad_pixel_masks=None,
-        show_plots=False,
+        show_plots=False
     ):
 
         if bad_pixel_masks is None:
@@ -249,13 +250,16 @@ class Instrument:
             else:
                 bad_pixel_masks[key] = bad_pixel_masks[key] | bad_pixel_mask
 
+            masked_bias = np.ma.masked_array(master_bias.data, mask=bad_pixel_mask)
+
             plt.close()
 
             plt.imshow(
-                master_bias.data,
+                masked_bias,
                 cmap="gray",
                 vmin=np.percentile(master_bias.data, 5),
                 vmax=np.percentile(master_bias.data, 95),
+                origin="lower",
             )
             plt.colorbar()
             plt.title(
@@ -302,7 +306,7 @@ class Instrument:
         logger.info("Master bias creation complete.")
 
         return master_biases, bad_pixel_masks
-    
+
     def make_master_flat(
         self,
         input_dir,
@@ -310,13 +314,19 @@ class Instrument:
         flat_setup,
         logger,
         bad_pixel_masks=None,
-        dark_frames = None,
-        bias_frames = None,
-        science_to_bias_map = None,
+        dark_frames=None,
+        bias_frames=None,
+        science_to_bias_map=None,
         show_plots=False,
-        
-        ):
+    ):
+        """
+        The bad pixel masks are assumed to be the one used from the dark and
+        bias configurations only.
+        """
 
+        bad_pixel_masks_science = {}
+
+        master_flats = {}
 
         for key, value in flat_setup.items():
 
@@ -328,8 +338,8 @@ class Instrument:
                     f"No flat frames found for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}, filter: {value['filter']}), skipping master flat creation."
                 )
                 continue
-            
-            #TODO make this a fallback to query then calib database afterwards afterwards
+
+            # TODO make this a fallback to query then calib database afterwards afterwards
             if n_files < 3:
                 logger.warning(
                     f"Only {n_files} flat frames found for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}, filter: {value['filter']}), master flat will not be optimal..."
@@ -370,7 +380,7 @@ class Instrument:
 
             # try loading bias frame if none are provided
             if bias_frames is None and not skip_bias_correction:
-                bias_key = science_to_bias_map[key] 
+                bias_key = science_to_bias_map[key]
                 bias_file_name = f"master_bias_{bias_key}.fits"
                 bias_frame = read_frame(output_dir, bias_file_name, self, logger)
                 if bias_frame is None:
@@ -381,8 +391,8 @@ class Instrument:
                 else:
                     logger.info(
                         f"Successfully loaded master bias for key {bias_key} mapped from flat setup key {key} from disk. Will apply bias correction to flat frames in this setup."
-                        )
-                    
+                    )
+
             key_to_bias = science_to_bias_map[key]
 
             # Mainly for debugging - if this is still None abort
@@ -390,12 +400,11 @@ class Instrument:
                 logger.error(
                     f"Science_to_bias_map entry for flat setup key {key} is None."
                     "Contact developers"
-
                 )
                 exit(-1)
-            
+
             try:
-                if dark_frame is None and not skip_dark_correction: 
+                if dark_frame is None and not skip_dark_correction:
                     dark_frame = dark_frames[key_to_bias]
             except KeyError:
                 logger.warning(
@@ -412,9 +421,8 @@ class Instrument:
                     )
                     skip_bias_correction = True
 
-
             flat_stack = []
-    
+
             for file in value["files"]:
 
                 filepath = os.path.join(input_dir, file)
@@ -435,20 +443,17 @@ class Instrument:
                         meta={"header": hdr} if hdr is not None else None,
                     )
 
-                    
                 except Exception:
                     # fallback: create CCDData without header
                     ccd_data = CCDData(hdul[self.data_hdu_extension].data, unit=u.adu)
-                
+
                 if not skip_dark_correction:
 
                     logger.info(
                         f"Applying dark correction to flat frame {file} using master dark for key {key_to_bias} mapped from flat setup key {key}."
                     )
-                    
-                    ccd_data = subtract_dark(
-                        ccd_data, dark_frame
-                    )
+
+                    ccd_data = subtract_dark(ccd_data, dark_frame)
 
                 if not skip_bias_correction:
 
@@ -456,9 +461,7 @@ class Instrument:
                         f"Applying bias correction to flat frame {file} using master bias for key {key_to_bias} mapped from flat setup key {key}."
                     )
 
-                    ccd_data = subtract_bias(
-                        ccd_data, bias_frame
-                    )
+                    ccd_data = subtract_bias(ccd_data, bias_frame)
 
                 flat_stack.append(ccd_data)
 
@@ -471,8 +474,11 @@ class Instrument:
                 sigma_clip_high_thresh=2,
             )
 
-            bpm_copy = bad_pixel_masks[key_to_bias].copy()
+            bpm_copy = bad_pixel_masks[key_to_bias].copy().astype(bool)
 
+
+            # make a seperate bpm mask for every science configuration so
+            # we don't end up overriding the same one
             bad_pixel_mask = self.update_bad_pixel_map(
                 master_flat.data,
                 logger,
@@ -480,23 +486,210 @@ class Instrument:
                 show_plots=show_plots,
             )
 
+            bad_pixel_masks_science[key] = bad_pixel_mask
 
+            # for displaying and normalazation
             masked_flat = np.ma.masked_array(master_flat.data, mask=bad_pixel_mask)
 
-            plt.imshow(
-                masked_flat,
-                cmap="gray",
-                origin='lower'
+            masked_median = np.ma.median(masked_flat)
+
+            masked_normalized = masked_flat / masked_median
+            master_normalized = master_flat / masked_median
+
+            plt.close()
+
+            plt.imshow(masked_normalized, cmap="gray", origin="lower")
+
+            plt.colorbar()
+            plt.title(
+                f"Master Flat for window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}, filter: {value['filter']}"
             )
 
-            plt.show()
+            # save plot to the output directory
+            plot_path = os.path.join(output_dir, f"master_flat_{key}.png")
+            plt.savefig(plot_path)
+
+            if show_plots:
+                plt.show()
+
+            # open the middle frame, copy its HDUList, replace the data with master_bias and write to disk
+            mid_idx = len(value["files"]) // 2
+            mid_file = value["files"][mid_idx]
+            mid_path = os.path.join(input_dir, mid_file)
+
+            hdul_mid = open_fits_file(mid_path, logger)
+
+            # deep-copy all HDUs so we don't mutate the original HDUList in memory
+            hdul_copy = fits.HDUList([hdu.copy() for hdu in hdul_mid])
+
+            header_updates = {
+                "MASTERFLAT": (True, "Indicates this frame is a master flat"),
+                "FLATCNT": (len(value["files"]), "Number of flat frames combined"),
+                "FLATWIN": (value["window"], "Window setting for this master flat"),
+                "FLATBINX": (value["bin_x"], "Binning in X for this master flat"),
+                "FLATBINY": (value["bin_y"], "Binning in Y for this master flat"),
+            }
+
+            # also write to header updates whether dark or and bias corrected
+            if not skip_dark_correction:
+                header_updates["DARKCORR"] = (
+                    True,
+                    "Indicates dark correction applied to flat frames",
+                )
+                header_updates["DARKKEY"] = (
+                    key_to_bias,
+                    "Key of the master dark used for correction",
+                )
+            else:
+                header_updates["DARKCORR"] = (
+                    False,
+                    "Indicates dark correction was not applied to flat frames",
+                )
+
+            if not skip_bias_correction:
+                header_updates["BIASCORR"] = (
+                    True,
+                    "Indicates bias correction applied to flat frames",
+                )
+                header_updates["BIASKEY"] = (
+                    key_to_bias,
+                    "Key of the master bias used for correction",
+                )
+            else:
+                header_updates["BIASCORR"] = (
+                    False,
+                    "Indicates bias correction was not applied to flat frames",
+                )
+
+            write_frame(
+                self,
+                hdul_copy,
+                master_normalized.data,
+                f"master_flat_{key}.fits",
+                output_dir,
+                logger,
+                bad_pixel_mask=bad_pixel_mask,
+                comment=f"Master flat created on {datetime.now().isoformat()} using {len(value['files'])} flat frames with 2-sigma clipping. Bad pixel mask updated based on deviation from median and zero-value pixels.",
+                header_updates=header_updates,
+            )
+
+            master_flats[key] = master_flat
+
+            logger.info("Master flat creation complete.")
+
+        return master_flats, bad_pixel_masks
 
 
+    def reduce_science_frames(
+        self,
+        raw_data_path,
+        output_dir,
+        science_configurations,
+        logger,
+        bad_pixel_masks = None,
+        dark_frames=None,
+        bias_frames=None,
+        flat_frames=None,
+        science_to_bias_map=None,
+        skip_dark=False,
+        skip_bias=False,
+        skip_flats=False,
+    ):
+
+        # These booleans control whether to skip certain steps
+        # The copy is taken to reset at every configuration, since 
+        # the logic flow might differ
+        skip_dark_input = skip_dark
+        skip_bias_input = skip_bias
+        skip_flats_input = skip_flats
 
 
+        for key, value in science_configurations.items():
+            logger.info(
+                f"Reducing science frames for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}, filter: {value['filter']}) with {len(value['files'])} science frames"
+            )
 
-        return None
+            # reset the bools for this configuration
+            skip_dark = skip_dark_input
+            skip_bias = skip_bias_input
+            skip_flats = skip_flats_input
 
+            #TODO - generalize loading masters into one method
+            # load dark frames from disc if not provided and not skipped
+            if not skip_dark and dark_frames is None:
+                # same as bias key
+                dark_key = science_to_bias_map[key]
+                dark_file_name = f"master_dark_{dark_key}.fits"
+                dark_frame = read_frame(output_dir, dark_file_name, self, logger)
+                if dark_frame is not None:
+                    logger.info(
+                            f"Successfully loaded master dark for key {key} from disk for science reduction."
+                        )
+                else:
+                    logger.warning(
+                        f"No master dark found for key {key} in science_to_bias_map. Science reduction for setups with this bias key mapping will proceed without dark correction."
+                    )
+    
+                    skip_dark = True
+
+            elif science_to_bias_map is None:
+                logger.warning(
+                    f"No bias key mapping found for science setup key {key} in science_to_bias_map. Proceeding without dark correction for science frames in this setup."
+                )
+                skip_dark = True
+
+            else:
+                dark_frame = dark_frames[dark_key]
+    
+            # load bias frames from disc if not provided and not skipped
+            if not skip_bias and bias_frames is None:
+                bias_key = science_to_bias_map[key]
+                bias_file_name = f"master_bias_{bias_key}.fits"
+                bias_frame = read_frame(output_dir, bias_file_name, self, logger)
+                if bias_frame is not None:
+                    logger.info(
+                            f"Successfully loaded master bias for key {bias_key} mapped from science setup key {key} from disk for science reduction."
+                        )
+                else:
+                    logger.warning(
+                        f"No master bias found for key {bias_key} mapped from science setup key {key} in science_to_bias_map. Science reduction for setups with this bias key mapping will proceed without bias correction."
+                    )
+    
+                    skip_bias = True
+
+            elif science_to_bias_map is None:
+                logger.warning(
+                    f"No bias key mapping found for science setup key {key} in science_to_bias_map. Proceeding without bias correction for science frames in this setup."
+                )
+                skip_bias = True
+
+            else:
+                bias_frame = bias_frames[bias_key]
+
+            # load flat frames from disc if not provided and not skipped
+            if not skip_flats and flat_frames is None:
+                flat_key = key
+                flat_file_name = f"master_flat_{flat_key}.fits"
+                flat_frame = read_frame(output_dir, flat_file_name, self, logger)
+                if flat_frame is not None:
+                    logger.info(
+                            f"Successfully loaded master flat for key {flat_key} from disk for science reduction."
+                        )
+                else:
+                    logger.warning(
+                        f"No master flat found for key {flat_key} in science_to_bias_map. Science reduction for setups with this bias key mapping will proceed without flat correction."
+                    )
+    
+                    skip_flats = True 
+
+            elif science_to_bias_map is None:
+                logger.warning(
+                    f"No bias key mapping found for science setup key {key} in science_to_bias_map. Proceeding without flat correction for science frames in this setup."
+                )
+                skip_flats = True
+
+            else:
+                flat_frame = flat_frames[flat_key]  
 
 class ALFOSC(Instrument):
     """ALFOSC instrument configuration for NOT telescope"""

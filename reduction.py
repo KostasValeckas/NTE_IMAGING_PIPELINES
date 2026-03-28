@@ -38,7 +38,8 @@ class ReductionPipeline:
         self.science_to_flat_map = None
 
         self.master_biases = None
-        self.bad_pixel_masks = None
+        self.bad_pixel_masks_bias = None
+        self.bad_pixel_masks_science = None
 
         self.master_flats = None
 
@@ -73,7 +74,7 @@ class ReductionPipeline:
             self.bias_files,
         )
 
-        self.master_biases, self.bad_pixel_masks = self.instrument.make_master_bias(
+        self.master_biases, self.bad_pixel_masks_bias = self.instrument.make_master_bias(
             self.raw_data_path,
             self.output_dir,
             self.bias_configurations,
@@ -90,13 +91,26 @@ class ReductionPipeline:
             self.flat_files,
         )
 
-        self.master_flats = self.instrument.make_master_flat(
+        self.master_flats, self.bad_pixel_masks_science = self.instrument.make_master_flat(
             self.raw_data_path,
             self.output_dir,
             self.flat_configurations,
             self.logger,
-            bad_pixel_masks = self.bad_pixel_masks,
+            bad_pixel_masks = self.bad_pixel_masks_bias,
             bias_frames = self.master_biases,
             science_to_bias_map= self.science_to_bias_map,
             show_plots=self.show_plots
         )
+        
+
+
+
+        self.instrument.reduce_science_frames(
+            self.raw_data_path,
+            self.output_dir,
+            self.setup_table,
+            self.logger,
+            science_to_bias_map= self.science_to_bias_map
+        )
+            
+
