@@ -103,11 +103,7 @@ class ReductionPipeline:
             science_to_bias_map= self.science_to_bias_map,
             show_plots=self.show_plots
         )
-
-        """
         
-
-
 
         self.instrument.reduce_science_frames(
             self.raw_data_path,
@@ -117,5 +113,7 @@ class ReductionPipeline:
             science_to_bias_map= self.science_to_bias_map,
             show_plots=self.show_plots
         )
+
+        """
             
 

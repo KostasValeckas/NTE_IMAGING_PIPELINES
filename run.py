@@ -33,7 +33,7 @@ if __name__ == "__main__":
         help="Show debugging plots during reduction",
     )
     parser.add_argument(
-        "instrument", type=str, help="Instrument to use. Options: ALFOSC"
+        "instrument", type=str, help="Instrument to use. Options: ALFOSC, NOTcam"
     )
     args = parser.parse_args()
 
@@ -60,6 +60,8 @@ if __name__ == "__main__":
     match instrument_name.upper():
         case "ALFOSC":
             instrument = ALFOSC()
+        case "NOTCAM":
+            instrument = NOTCAM()
 
     show_plots = args.show_plots
     if show_plots is None:
