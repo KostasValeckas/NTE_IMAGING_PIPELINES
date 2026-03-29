@@ -1,4 +1,5 @@
 * Make a wrapper for creatind CCD data frames
+* Make a skip_dark option for the flat method
 * One method for opening master files for calibs
 * One method for writing json configuration files
 * Overscan strip in bias

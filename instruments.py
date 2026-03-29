@@ -10,6 +10,7 @@ import numpy as np
 import astropy.units as u
 from astropy.io import fits
 from datetime import datetime
+import re
 
 
 @dataclass
@@ -935,9 +936,68 @@ class NOTCAM(Instrument):
         ):
             return ImageType.SCIENCE
         
-    def make_master_bias(self, **dummy_args):
+    def make_master_bias(self, input_dir, output_dir, bias_setup, logger, bad_pixel_masks=None, show_plots=False):
         """
         Not needed for NOTCAM.
         """
-        return None
+        return None, None
+
+    def make_master_flat(self, input_dir, output_dir, flat_setup, logger, bad_pixel_masks=None, dark_frames=None, bias_frames=None, science_to_bias_map=None, show_plots=False):
+
+        """
+        For NOTcam, differential flats are used, so we do some 
+        pre-processing before doing the "standard" master flat creation.
+        """
+
+        for key, value in flat_setup.items():
+
+            raw_data_list = np.array([])
+            intensity_medians = []
+
+
+
+            # use Python lists to collect arrays and medians (avoids flattening with np.append)
+            raw_data_list = []
+            intensity_medians = []
+
+            for file in value["files"]:
+
+                # first load all frames and sort them by median intensity
+
+                filepath = os.path.join(input_dir, file)
+
+                hdul = open_fits_file(filepath, logger)
+                
+                try:
+                    data = hdul[self.data_hdu_extension].data
+
+                except Exception:
+                    logger.error(
+                        f"Error reading data from HDU {self.data_hdu_extension} in file {filepath}. Skipping this file for master flat creation for NOTcam."
+                    )
+                    continue
+
+                raw_data_list = np.append(raw_data_list, data)
+
+                # compute the median intensity of the current frame
+                median_intensity = np.median(data)
+                intensity_medians.append(median_intensity)
+
+            # sort by median intensity using argsort (descending) and reorder lists
+            meds = np.asarray(intensity_medians)
+            if meds.size == 0:
+                continue
+
+            order = np.argsort(meds)[::-1]  # indices for descending medians
+
+            # reorder filenames
+            value["files"] = [value["files"][i] for i in order]
+            # assume raw_data_list already aligns with value["files"]
+            raw_data_list = [raw_data_list[i] for i in order]
+            intensity_medians = [float(meds[i]) for i in order]
+
+            plt.plot(value["files"], intensity_medians, marker="o")
+            plt.show()
+
+        return super().make_master_flat(input_dir, output_dir, flat_setup, logger, bad_pixel_masks, dark_frames, bias_frames, science_to_bias_map, show_plots)  
         
