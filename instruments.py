@@ -50,6 +50,7 @@ class Instrument:
         science_keyword: Optional[list[str]] = None,
         data_hdu_extension: Optional[int] = None,
         object_keyword: Optional[tuple[str, int]] = None,
+        exposure_time_keyword: Optional[tuple[str, int]] = None,
     ):
         self.name = name
         self.detector = detector if detector is not None else Detector()
@@ -75,6 +76,10 @@ class Instrument:
 
         self.object_keyword = (
             object_keyword if object_keyword is not None else (None, 0)
+        )
+
+        self.exposure_time_keyword = (
+            exposure_time_keyword if exposure_time_keyword is not None else (None, 0)
         )
 
         self.data_hdu_extension = data_hdu_extension
@@ -903,6 +908,7 @@ class NOTCAM(Instrument):
             dark_keyword=["DARK"],
             flat_keyword=["FLAT,SKY"],
             science_keyword=["OBJECT"],
+            exposure_time_keyword=("EXPTIME", 0)
         )
 
     def get_header_value(self, hdul, keyword_tuple) -> Optional[str]:
@@ -994,9 +1000,43 @@ class NOTCAM(Instrument):
             value["files"] = [value["files"][i] for i in order]
             # assume raw_data_list already aligns with value["files"]
             raw_data_list = [raw_data_list[i] for i in order]
-            intensity_medians = [float(meds[i]) for i in order]
+            intensity_medians = np.array([float(meds[i]) for i in order])
 
+            plt.close()
             plt.plot(value["files"], intensity_medians, marker="o")
+            plt.xlabel("File")
+            plt.ylabel("Median Intensity")
+            plt.title(f"NOTCAM-flats Median Intensities for conf. key: {key}")
+            plt.tight_layout()
+            plot_save_path = os.path.join(output_dir, f"notcam_flat_medians_{key}.png")
+            plt.savefig(plot_save_path)
+            if show_plots:
+                plt.show()
+
+            # check that there is an even equal number of frames to 
+            # make pairs
+
+            if len(raw_data_list) % 2 != 0:
+                logger.warning(f"Uneven number of bright and dark frames for {key}.")
+                logger.warning(f"Will truncate the last frame.")
+                logger.warning(f"Check quality-assessment plots!")
+
+                # truncate the last element to make the number of frames even
+                removed_file = value["files"].pop()
+                raw_data_list.pop()
+                intensity_medians.pop()
+
+                logger.info(f"Truncated last NOTCAM flat frame '{removed_file}' for config {key} to obtain an even number of frames.")
+
+            birhgt_frames = raw_data_list[0 : len(raw_data_list) // 2]
+            dark_frames = raw_data_list[len(raw_data_list) // 2 :]
+
+            bright_medians = intensity_medians[0 : len(intensity_medians) // 2]
+            dark_medians = intensity_medians[len(intensity_medians) // 2 :]
+
+            diff_medians = bright_medians - dark_medians
+
+            plt.plot(diff_medians)
             plt.show()
 
         return super().make_master_flat(input_dir, output_dir, flat_setup, logger, bad_pixel_masks, dark_frames, bias_frames, science_to_bias_map, show_plots)  
