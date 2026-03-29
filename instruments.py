@@ -24,6 +24,7 @@ class Detector:
     window_keyword: Optional[tuple[str, int]] = None
     bin_x_keyword: Optional[tuple[str, int]] = None
     bin_y_keyword: Optional[tuple[str, int]] = None
+    bpm_median_threshold: Optional[float] = 0.2
 
 
 @dataclass
@@ -94,10 +95,13 @@ class Instrument:
         self,
         master_frame,
         logger,
+        output_dir,
+        key,
         bad_pixel_mask=None,
-        n_median_deviation=0.2,
         show_plots=False,
     ):
+
+        n_median_deviation = self.detector.bpm_median_threshold or 0.2
 
         # create a new bad pixel mask based on sigma clipping the master frame
         if bad_pixel_mask is None:
@@ -184,6 +188,10 @@ class Instrument:
             median + n_median_deviation * median * 1.1,
         )
 
+        save_path = os.path.join(output_dir, f"bad_pixel_map_{key}.png")
+        plt.savefig(save_path)
+        logger.info(f"Saved bad pixel map plot to: {save_path}")
+
         if show_plots:
             plt.show()
         else:
@@ -249,6 +257,8 @@ class Instrument:
             bad_pixel_mask = self.update_bad_pixel_map(
                 master_bias.data,
                 logger,
+                output_dir,
+                key,
                 bad_pixel_masks[key] if key in bad_pixel_masks else None,
                 show_plots=show_plots,
             )
@@ -480,13 +490,19 @@ class Instrument:
                 sigma_clip_high_thresh=2,
             )
 
-            bpm_copy = bad_pixel_masks[key_to_bias].copy().astype(bool) if bad_pixel_masks is not None and key_to_bias in bad_pixel_masks else None
+            bpm_copy = (
+                bad_pixel_masks[key_to_bias].copy().astype(bool)
+                if bad_pixel_masks is not None and key_to_bias in bad_pixel_masks
+                else None
+            )
 
             # make a seperate bpm mask for every science configuration so
             # we don't end up overriding the same one
             bad_pixel_mask = self.update_bad_pixel_map(
                 master_flat.data,
                 logger,
+                output_dir,
+                key,
                 bpm_copy,
                 show_plots=show_plots,
             )
@@ -837,6 +853,7 @@ class ALFOSC(Instrument):
             window_keyword=("DETWIN1", 0),
             bin_x_keyword=("DETXBIN", 0),
             bin_y_keyword=("DETYBIN", 0),
+            bpm_median_threshold=0.25,
         )
 
         # Initialize parent class with ALFOSC-specific parameters
@@ -872,6 +889,34 @@ class ALFOSC(Instrument):
             and hdul[0].header["OBS_MODE"] == "IMAGING"
         ):
             return ImageType.SCIENCE
+
+    def make_master_flat(
+        self,
+        input_dir,
+        output_dir,
+        flat_setup,
+        logger,
+        bad_pixel_masks=None,
+        dark_frames=None,
+        bias_frames=None,
+        science_to_bias_map=None,
+        show_plots=False,
+        skip_dark_correction=True,
+        skip_bias_correction=False,
+    ):
+        return super().make_master_flat(
+            input_dir,
+            output_dir,
+            flat_setup,
+            logger,
+            bad_pixel_masks,
+            dark_frames,
+            bias_frames,
+            science_to_bias_map,
+            show_plots,
+            skip_dark_correction,
+            skip_bias_correction,
+        )
 
     def reduce_science_frames(
         self,
@@ -915,6 +960,7 @@ class NOTCAM(Instrument):
             window_keyword=None,
             bin_x_keyword=None,
             bin_y_keyword=None,
+            bpm_median_threshold=0.4,
         )
 
         # Initialize parent class with ALFOSC-specific parameters
@@ -998,6 +1044,10 @@ class NOTCAM(Instrument):
 
         for key, value in flat_setup.items():
 
+            logger.info(
+                f"Pre-processing NOTCAM flats for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}, filter: {value['filter']}) with {len(value['files'])} flat frames"
+            )
+
             raw_data_list = np.array([])
             intensity_medians = []
 
@@ -1067,7 +1117,7 @@ class NOTCAM(Instrument):
 
             skyflat_mask = [name == "skyflat 1" for name in object_names]
             remove_mask = np.zeros(len(skyflat_mask), dtype=bool)
-            print(skyflat_mask)
+
             if (
                 sum(skyflat_mask) > 2
             ):  # booth first bright and dark skyflat have "skyflat 1" as object
@@ -1100,8 +1150,11 @@ class NOTCAM(Instrument):
             plt.close()
             plt.plot(value["files"], intensity_medians, marker="o")
             plt.xlabel("File")
+            plt.xticks(rotation=90, ha="right")
             plt.ylabel("Median Intensity")
-            plt.title(f"NOTCAM-flats Median Intensities for conf. key: {key}")
+            plt.title(
+                f"NOTCAM-flats Median Intensities for conf. key: {key}.\n Should be in descending order, with bright flats first and dark flats last."
+            )
             plt.tight_layout()
             plot_save_path = os.path.join(output_dir, f"notcam_flat_medians_{key}.png")
             plt.savefig(plot_save_path)
@@ -1132,42 +1185,39 @@ class NOTCAM(Instrument):
                     f"Found non-descending median differences between bright and dark NOTCAM flats for config {key}. This might indicate an issue with the flat frames or the pairing process."
                 )
 
-            plt.close()
-            plt.plot(diff_medians)
-            plt.title(
-                f"Median Differences between bright and dark NOTCAM flats for conf. key: {key}"
-            )
-            plt.show()
-
             diff_frames = [
                 bright_frames[i] - dark_frames[i] for i in range(len(bright_frames))
             ]
             diff_frame_medians = [np.median(frame) for frame in diff_frames]
 
-            plt.plot(diff_frame_medians)
+            plt.close()
+            plt.plot(diff_frame_medians, marker="o")
             plt.title(
-                f"Median Intensities of the differential NOTCAM flats for conf. key: {key}"
+                f"Medians of separate differential NOTCAM flats for conf. key: {key}"
             )
-            plt.show()
+            plt.xlabel("Frame Index")
+            plt.ylabel("Median Intensity")
+            plt.tight_layout()
+            plot_save_path = os.path.join(
+                output_dir, f"notcam_flat_diff_medians_{key}.png"
+            )
+            plt.savefig(plot_save_path)
+            if show_plots:
+                plt.show()
+
+            logger.info(
+                "Scaling differential NOTCAM flats by their median intensity to account for brightness differences between pairs of bright and dark flats."
+            )
 
             diff_frames_scaled = [
                 diff_frames[i] / diff_frame_medians[i] for i in range(len(diff_frames))
             ]
 
-            diff_frames_scaled_medians = [
-                np.median(frame) for frame in diff_frames_scaled
-            ]
-            plt.plot(diff_frames_scaled_medians)
-            plt.title(
-                f"Median Intensities of the scaled differential NOTCAM flats for conf. key: {key}"
-            )
-            plt.show()
-
             # write the frames to output directory, name them diff_filename, and update
             # the flat setup so it can be passed to the standard master flat creation method
             # TODO this is a bit hacky, refine later
             diff_file_names = []
-            for i, diff in enumerate(diff_frames):
+            for i, diff in enumerate(diff_frames_scaled):
                 diff_file_name = f"diff_{key}_{i}.fits"
                 diff_file_path = os.path.join(input_dir, diff_file_name)
 
