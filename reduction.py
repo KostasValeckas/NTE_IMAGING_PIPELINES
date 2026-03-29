@@ -74,14 +74,14 @@ class ReductionPipeline:
             self.bias_files,
         )
 
-        
-
-        self.master_biases, self.bad_pixel_masks_bias = self.instrument.make_master_bias(
-            self.raw_data_path,
-            self.output_dir,
-            self.bias_configurations,
-            self.logger,
-            show_plots=self.show_plots,
+        self.master_biases, self.bad_pixel_masks_bias = (
+            self.instrument.make_master_bias(
+                self.raw_data_path,
+                self.output_dir,
+                self.bias_configurations,
+                self.logger,
+                show_plots=self.show_plots,
+            )
         )
 
         self.flat_configurations = create_flat_table(
@@ -93,15 +93,17 @@ class ReductionPipeline:
             self.flat_files,
         )
 
-        self.master_flats, self.bad_pixel_masks_science = self.instrument.make_master_flat(
-            self.raw_data_path,
-            self.output_dir,
-            self.flat_configurations,
-            self.logger,
-            bad_pixel_masks = self.bad_pixel_masks_bias,
-            bias_frames = self.master_biases,
-            science_to_bias_map= self.science_to_bias_map,
-            show_plots=self.show_plots
+        self.master_flats, self.bad_pixel_masks_science = (
+            self.instrument.make_master_flat(
+                self.raw_data_path,
+                self.output_dir,
+                self.flat_configurations,
+                self.logger,
+                bad_pixel_masks=self.bad_pixel_masks_bias,
+                bias_frames=self.master_biases,
+                science_to_bias_map=self.science_to_bias_map,
+                show_plots=self.show_plots,
+            )
         )
 
         """
@@ -117,7 +119,3 @@ class ReductionPipeline:
         )
 
         """
-
-        
-            
-

@@ -155,7 +155,9 @@ def create_setup_table(
 
     return setup_table
 
-#TODO see if it makes sense to refactor table crreation into one generic
+
+# TODO see if it makes sense to refactor table crreation into one generic
+
 
 def create_bias_table(
     instrument: Instrument,
@@ -237,6 +239,7 @@ def create_bias_table(
 
     return bias_table, science_to_bias_map
 
+
 def create_flat_table(
     instrument: Instrument,
     logger: Logger,
@@ -245,7 +248,7 @@ def create_flat_table(
     setup_table,
     flat_file_list,
 ):
-    
+
     flat_table = {}
 
     for setup_idx, setup in setup_table.items():
@@ -278,7 +281,12 @@ def create_flat_table(
         # find the matching setup index
         matched_setup_idx = None
         for setup_idx, setup in setup_table.items():
-            setup_key = (setup["window"], setup["bin_x"], setup["bin_y"], setup["filter"])
+            setup_key = (
+                setup["window"],
+                setup["bin_x"],
+                setup["bin_y"],
+                setup["filter"],
+            )
             if flat_key == setup_key:
                 matched_setup_idx = setup_idx
                 break
