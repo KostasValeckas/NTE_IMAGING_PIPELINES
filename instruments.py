@@ -3,7 +3,7 @@ from typing import Optional
 import os
 from enum import Enum
 from datatypes import ImageType
-from ccdproc import combine, CCDData, subtract_dark, subtract_bias
+from ccdproc import combine, CCDData, subtract_dark, subtract_bias, flat_correct
 from IO import open_fits_file, write_frame, read_frame
 import matplotlib.pyplot as plt
 import numpy as np
@@ -586,6 +586,7 @@ class Instrument:
         output_dir,
         science_configurations,
         logger,
+        show_plots=False,
         bad_pixel_masks = None,
         dark_frames=None,
         bias_frames=None,
@@ -690,6 +691,115 @@ class Instrument:
 
             else:
                 flat_frame = flat_frames[flat_key]  
+
+
+
+            for file in value["files"]:
+                
+                filepath = os.path.join(raw_data_path, file)
+
+                hdul = open_fits_file(filepath, logger)
+
+                # create CCDData directly from the numpy array and keep header/meta
+                try:
+                    data = hdul[self.data_hdu_extension].data
+                    hdr = (
+                        hdul[self.data_hdu_extension].header
+                        if len(hdul) > self.data_hdu_extension
+                        else None
+                    )
+                    ccd_data = CCDData(
+                        data,
+                        unit=u.adu,
+                        meta={"header": hdr} if hdr is not None else None,
+                    )
+
+                except Exception:
+                    # fallback: create CCDData without header
+                    ccd_data = CCDData(hdul[self.data_hdu_extension].data, unit=u.adu)
+
+                if not skip_dark:
+
+                    logger.info(
+                        f"Applying dark correction to science frame {file} using master dark for key {dark_key} mapped from science setup key {key}."
+                    )
+
+                    ccd_data = subtract_dark(ccd_data, dark_frame.data)
+
+                if not skip_bias:
+
+                    logger.info(
+                        f"Applying bias correction to science frame {file} using master bias for key {bias_key} mapped from science setup key {key}."
+                    )
+
+                    ccd_data = subtract_bias(ccd_data, bias_frame.data)
+
+                if not skip_flats:
+
+                    logger.info(
+                        f"Applying flat correction to science frame {file} using master flat for key {flat_key} mapped from science setup key {key}."
+                    )
+
+                    ccd_data = flat_correct(ccd_data, flat_frame.data)
+
+
+                if not skip_flats:
+                    bad_pixel_mask = flat_frame.bpm
+                
+                elif not skip_bias:
+                    bad_pixel_mask = bias_frame.bpm
+
+                else:
+                    bad_pixel_mask = None
+
+
+                detector_array = np.array(ccd_data.data.copy())
+                if bad_pixel_mask is not None:
+                    detector_array = np.ma.masked_array(detector_array, mask=bad_pixel_mask)
+
+                min_percentile = np.nanpercentile(ccd_data.data, 30)
+                max_percentile = np.nanpercentile(ccd_data.data, 95)
+
+                plt.close()
+                plt.imshow(detector_array, cmap="gray", origin="lower", vmin=min_percentile, vmax=max_percentile)
+                plt.colorbar()
+                plt.title(
+                    f"Reduced Science Frame for {file}, dark corrected: {not skip_dark}, bias corrected: {not skip_bias}, flat corrected: {not skip_flats}"
+                )
+                plt.tight_layout()
+
+                save_path = os.path.join(output_dir, f"reduced_science_{file.split('.')[0]}.png")
+                plt.savefig(save_path)
+
+                if show_plots:
+                    plt.show()
+                else:
+                    plt.close()
+
+                # write to disc
+
+                hdul_copy = fits.HDUList([hdu.copy() for hdu in hdul])
+
+                write_frame(
+                    self,
+                    hdul_copy,
+                    ccd_data.data,
+                    f"reduced_science_{file}",
+                    output_dir,
+                    logger,
+                    bad_pixel_mask=bad_pixel_mask,
+                    comment=f"Science frame reduced on {datetime.now().isoformat()} with dark correction: {not skip_dark}, bias correction: {not skip_bias}, flat correction: {not skip_flats}.",
+                    header_updates={
+                        "REDUCTION": (True, "Indicates this frame has been reduced"),
+                        "DARKCORR": (not skip_dark, "Indicates whether dark correction was applied"),
+                        "BIASCORR": (not skip_bias, "Indicates whether bias correction was applied"),
+                        "FLATCORR": (not skip_flats, "Indicates whether flat correction was applied"),
+                        "DARKKEY": (dark_key if not skip_dark else None, "Key of the master dark used for correction, if applicable"),
+                        "BIASKEY": (bias_key if not skip_bias else None, "Key of the master bias used for correction, if applicable"),
+                        "FLATKEY": (flat_key if not skip_flats else None, "Key of the master flat used for correction, if applicable"),
+                    },
+                )
+
 
 class ALFOSC(Instrument):
     """ALFOSC instrument configuration for NOT telescope"""

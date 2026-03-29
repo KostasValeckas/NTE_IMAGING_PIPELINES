@@ -74,6 +74,8 @@ class ReductionPipeline:
             self.bias_files,
         )
 
+        """
+
         self.master_biases, self.bad_pixel_masks_bias = self.instrument.make_master_bias(
             self.raw_data_path,
             self.output_dir,
@@ -101,6 +103,8 @@ class ReductionPipeline:
             science_to_bias_map= self.science_to_bias_map,
             show_plots=self.show_plots
         )
+
+        """
         
 
 
@@ -110,7 +114,8 @@ class ReductionPipeline:
             self.output_dir,
             self.setup_table,
             self.logger,
-            science_to_bias_map= self.science_to_bias_map
+            science_to_bias_map= self.science_to_bias_map,
+            show_plots=self.show_plots
         )
             
 
