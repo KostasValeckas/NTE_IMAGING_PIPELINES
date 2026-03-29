@@ -1,0 +1,14 @@
+{
+  "0": {
+    "window": "0",
+    "bin_x": "0",
+    "bin_y": "0",
+    "filter": [
+      "Open",
+      "J"
+    ],
+    "files": [
+      "NOTCAM_one_target/NCJb040545.fits"
+    ]
+  }
+}

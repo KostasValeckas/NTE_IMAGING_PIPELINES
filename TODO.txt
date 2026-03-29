@@ -1,0 +1,6 @@
+* Make a wrapper for creatind CCD data frames
+* One method for opening master files for calibs
+* One method for writing json configuration files
+* Overscan strip in bias
+* One method for creating tables
+
