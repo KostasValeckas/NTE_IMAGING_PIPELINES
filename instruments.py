@@ -4,13 +4,14 @@ import os
 from enum import Enum
 from datatypes import ImageType
 from ccdproc import combine, CCDData, subtract_dark, subtract_bias, flat_correct
-from IO import open_fits_file, write_frame, read_frame
+from IO import open_fits_file, write_frame, read_frame, get_header_value
 import matplotlib.pyplot as plt
 import numpy as np
 import astropy.units as u
 from astropy.io import fits
 from datetime import datetime
 import re
+
 
 
 @dataclass
@@ -908,7 +909,8 @@ class NOTCAM(Instrument):
             dark_keyword=["DARK"],
             flat_keyword=["FLAT,SKY"],
             science_keyword=["OBJECT"],
-            exposure_time_keyword=("EXPTIME", 0)
+            exposure_time_keyword=("EXPTIME", 1),
+            object_keyword=("OBJECT", 0),
         )
 
     def get_header_value(self, hdul, keyword_tuple) -> Optional[str]:
@@ -965,6 +967,8 @@ class NOTCAM(Instrument):
             # use Python lists to collect arrays and medians (avoids flattening with np.append)
             raw_data_list = []
             intensity_medians = []
+            exptimes = []
+            object_names = []
 
             for file in value["files"]:
 
@@ -976,6 +980,8 @@ class NOTCAM(Instrument):
                 
                 try:
                     data = hdul[self.data_hdu_extension].data
+                    exptime = get_header_value(hdul, self.exposure_time_keyword, logger)
+                    object_name = get_header_value(hdul, self.object_keyword, logger)
 
                 except Exception:
                     logger.error(
@@ -988,7 +994,8 @@ class NOTCAM(Instrument):
                 # compute the median intensity of the current frame
                 median_intensity = np.median(data)
                 intensity_medians.append(median_intensity)
-
+                exptimes.append(exptime)
+                object_names.append(object_name)
             # sort by median intensity using argsort (descending) and reorder lists
             meds = np.asarray(intensity_medians)
             if meds.size == 0:
@@ -1001,6 +1008,43 @@ class NOTCAM(Instrument):
             # assume raw_data_list already aligns with value["files"]
             raw_data_list = [raw_data_list[i] for i in order]
             intensity_medians = np.array([float(meds[i]) for i in order])
+            exptimes = np.array([float(exptimes[i]) for i in order])
+            object_names = np.array([object_names[i] for i in order])
+
+            # find the most used exptime and exclude all others
+            used_exptime = np.bincount(exptimes.astype(int)).argmax()
+            logger.info(f"Using exposure time {used_exptime} for master flat creation.")
+
+            # exclude all frames with different exposure times
+            mask = exptimes == used_exptime
+            value["files"] = [value["files"][i] for i in range(len(mask)) if mask[i]]
+            raw_data_list = [raw_data_list[i] for i in range(len(mask)) if mask[i]]
+            intensity_medians = intensity_medians[mask]
+            exptimes = exptimes[mask]
+            object_names = [object_names[i] for i in range(len(mask)) if mask[i]]
+
+            print(object_names)
+
+
+            # NOTcam specific clean-up from manual flats:
+            # For the brightests flats, see if several frames have the object 
+            # "skyflat 1" and keep only the last one:
+
+            skyflat_mask = [name == "skyflat 1" for name in object_names]
+            remove_mask = np.zeros(len(skyflat_mask), dtype=bool)
+            print(skyflat_mask)
+            if sum(skyflat_mask) > 2: # booth first bright and dark skyflat have "skyflat 1" as object
+                logger.info(f"Found multiple 'skyflat 1' frames for config {key}. Keeping only the last one.")
+                for i in range(len(skyflat_mask)-1):
+                    if skyflat_mask[i] and skyflat_mask[i+1]:
+                        remove_mask[i] = True
+                
+                # apply the remove mask to all lists
+                value["files"] = [value["files"][i] for i in range(len(remove_mask)) if not remove_mask[i]]
+                raw_data_list = [raw_data_list[i] for i in range(len(remove_mask)) if not remove_mask[i]]
+                intensity_medians = intensity_medians[~remove_mask]
+                exptimes = exptimes[~remove_mask]
+                object_names = [object_names[i] for i in range(len(remove_mask)) if not remove_mask[i]]
 
             plt.close()
             plt.plot(value["files"], intensity_medians, marker="o")
@@ -1016,19 +1060,9 @@ class NOTCAM(Instrument):
             # check that there is an even equal number of frames to 
             # make pairs
 
-            if len(raw_data_list) % 2 != 0:
-                logger.warning(f"Uneven number of bright and dark frames for {key}.")
-                logger.warning(f"Will truncate the last frame.")
-                logger.warning(f"Check quality-assessment plots!")
 
-                # truncate the last element to make the number of frames even
-                removed_file = value["files"].pop()
-                raw_data_list.pop()
-                intensity_medians.pop()
 
-                logger.info(f"Truncated last NOTCAM flat frame '{removed_file}' for config {key} to obtain an even number of frames.")
-
-            birhgt_frames = raw_data_list[0 : len(raw_data_list) // 2]
+            bright_frames = raw_data_list[0 : len(raw_data_list) // 2]
             dark_frames = raw_data_list[len(raw_data_list) // 2 :]
 
             bright_medians = intensity_medians[0 : len(intensity_medians) // 2]
@@ -1036,8 +1070,11 @@ class NOTCAM(Instrument):
 
             diff_medians = bright_medians - dark_medians
 
+            plt.close()
             plt.plot(diff_medians)
             plt.show()
 
-        return super().make_master_flat(input_dir, output_dir, flat_setup, logger, bad_pixel_masks, dark_frames, bias_frames, science_to_bias_map, show_plots)  
+            
+
+        #return super().make_master_flat(input_dir, output_dir, flat_setup, logger, bad_pixel_masks, dark_frames, bias_frames, science_to_bias_map, show_plots)  
         
