@@ -106,16 +106,11 @@ class ReductionPipeline:
             )
         )
 
-        """
-        
-
         self.instrument.reduce_science_frames(
             self.raw_data_path,
             self.output_dir,
             self.setup_table,
             self.logger,
-            science_to_bias_map= self.science_to_bias_map,
-            show_plots=self.show_plots
+            science_to_bias_map=self.science_to_bias_map,
+            show_plots=self.show_plots,
         )
-
-        """

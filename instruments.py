@@ -636,80 +636,97 @@ class Instrument:
 
             # TODO - generalize loading masters into one method
             # load dark frames from disc if not provided and not skipped
-            if not skip_dark and dark_frames is None:
-                # same as bias key
-                dark_key = science_to_bias_map[key]
-                dark_file_name = f"master_dark_{dark_key}.fits"
-                dark_frame = read_frame(output_dir, dark_file_name, self, logger)
-                if dark_frame is not None:
-                    logger.info(
-                        f"Successfully loaded master dark for key {key} from disk for science reduction."
-                    )
-                else:
-                    logger.warning(
-                        f"No master dark found for key {key} in science_to_bias_map. Science reduction for setups with this bias key mapping will proceed without dark correction."
-                    )
+            if not skip_dark:
+                if not dark_frames is None:
+                    # same as bias key
+                    dark_key = science_to_bias_map[key]
+                    dark_file_name = f"master_dark_{dark_key}.fits"
+                    dark_frame = read_frame(output_dir, dark_file_name, self, logger)
+                    if dark_frame is not None:
+                        logger.info(
+                            f"Successfully loaded master dark for key {key} from disk for science reduction."
+                        )
+                    else:
+                        logger.warning(
+                            f"No master dark found for key {key} in science_to_bias_map. Science reduction for setups with this bias key mapping will proceed without dark correction."
+                        )
 
+                        skip_dark = True
+
+                elif science_to_bias_map is None:
+                    logger.warning(
+                        f"No bias key mapping found for science setup key {key} in science_to_bias_map. Proceeding without dark correction for science frames in this setup."
+                    )
                     skip_dark = True
 
-            elif science_to_bias_map is None:
-                logger.warning(
-                    f"No bias key mapping found for science setup key {key} in science_to_bias_map. Proceeding without dark correction for science frames in this setup."
-                )
-                skip_dark = True
+                else:
+                    dark_frame = dark_frames[dark_key]
 
             else:
-                dark_frame = dark_frames[dark_key]
+                logger.info(
+                    f"Skipping dark correction for science frames in setup {key} as per configuration."
+                )
+                dark_frame = None
 
-            # load bias frames from disc if not provided and not skipped
-            if not skip_bias and bias_frames is None:
-                bias_key = science_to_bias_map[key]
-                bias_file_name = f"master_bias_{bias_key}.fits"
-                bias_frame = read_frame(output_dir, bias_file_name, self, logger)
-                if bias_frame is not None:
-                    logger.info(
-                        f"Successfully loaded master bias for key {bias_key} mapped from science setup key {key} from disk for science reduction."
-                    )
-                else:
-                    logger.warning(
-                        f"No master bias found for key {bias_key} mapped from science setup key {key} in science_to_bias_map. Science reduction for setups with this bias key mapping will proceed without bias correction."
-                    )
+            if not skip_bias:
+                if bias_frames is None:
+                    bias_key = science_to_bias_map[key]
+                    bias_file_name = f"master_bias_{bias_key}.fits"
+                    bias_frame = read_frame(output_dir, bias_file_name, self, logger)
+                    if bias_frame is not None:
+                        logger.info(
+                            f"Successfully loaded master bias for key {bias_key} mapped from science setup key {key} from disk for science reduction."
+                        )
+                    else:
+                        logger.warning(
+                            f"No master bias found for key {bias_key} mapped from science setup key {key} in science_to_bias_map. Science reduction for setups with this bias key mapping will proceed without bias correction."
+                        )
 
                     skip_bias = True
 
-            elif science_to_bias_map is None:
-                logger.warning(
-                    f"No bias key mapping found for science setup key {key} in science_to_bias_map. Proceeding without bias correction for science frames in this setup."
-                )
-                skip_bias = True
+                elif science_to_bias_map is None:
+                    logger.warning(
+                        f"No bias key mapping found for science setup key {key} in science_to_bias_map. Proceeding without bias correction for science frames in this setup."
+                    )
+                    skip_bias = True
+
+                else:
+                    bias_frame = bias_frames[bias_key]
 
             else:
-                bias_frame = bias_frames[bias_key]
+                logger.info(
+                    f"Skipping bias correction for science frames in setup {key} as per configuration."
+                )
+                bias_frame = None
 
             # load flat frames from disc if not provided and not skipped
-            if not skip_flats and flat_frames is None:
-                flat_key = key
-                flat_file_name = f"master_flat_{flat_key}.fits"
-                flat_frame = read_frame(output_dir, flat_file_name, self, logger)
-                if flat_frame is not None:
-                    logger.info(
-                        f"Successfully loaded master flat for key {flat_key} from disk for science reduction."
-                    )
-                else:
-                    logger.warning(
-                        f"No master flat found for key {flat_key} in science_to_bias_map. Science reduction for setups with this bias key mapping will proceed without flat correction."
-                    )
+            if not skip_flats:
+                if flat_frames is None:
+                    flat_key = key
+                    flat_file_name = f"master_flat_{flat_key}.fits"
+                    flat_frame = read_frame(output_dir, flat_file_name, self, logger)
+                    if flat_frame is not None:
+                        logger.info(
+                            f"Successfully loaded master flat for key {flat_key} from disk for science reduction."
+                        )
+                    else:
+                        logger.warning(
+                            f"No master flat found for key {flat_key} in science_to_bias_map. Science reduction for setups with this bias key mapping will proceed without flat correction."
+                        )
 
+                        skip_flats = True
+
+                elif science_to_bias_map is None:
+                    logger.warning(
+                        f"No bias key mapping found for science setup key {key} in science_to_bias_map. Proceeding without flat correction for science frames in this setup."
+                    )
                     skip_flats = True
 
-            elif science_to_bias_map is None:
-                logger.warning(
-                    f"No bias key mapping found for science setup key {key} in science_to_bias_map. Proceeding without flat correction for science frames in this setup."
-                )
-                skip_flats = True
+                else:
+                    flat_frame = flat_frames[flat_key]
 
             else:
-                flat_frame = flat_frames[flat_key]
+                flat_frame = None
 
             for file in value["files"]:
 
@@ -1254,4 +1271,36 @@ class NOTCAM(Instrument):
             show_plots=show_plots,
             skip_bias_correction=True,
             skip_dark_correction=True,
+        )
+
+    def reduce_science_frames(
+        self,
+        raw_data_path,
+        output_dir,
+        science_configurations,
+        logger,
+        show_plots=False,
+        bad_pixel_masks=None,
+        dark_frames=None,
+        bias_frames=None,
+        flat_frames=None,
+        science_to_bias_map=None,
+        skip_dark=False,
+        skip_bias=False,
+        skip_flats=False,
+    ):
+        return super().reduce_science_frames(
+            raw_data_path,
+            output_dir,
+            science_configurations,
+            logger,
+            show_plots =show_plots,
+            bad_pixel_masks = bad_pixel_masks,
+            dark_frames = None,
+            bias_frames = None,
+            flat_frames = flat_frames,
+            science_to_bias_map = science_to_bias_map,
+            skip_dark = True,
+            skip_bias = True,
+            skip_flats = False,
         )
