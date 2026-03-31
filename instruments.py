@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 from typing import Optional
 import os
 from enum import Enum
@@ -624,10 +625,18 @@ class Instrument:
         skip_bias_input = skip_bias
         skip_flats_input = skip_flats
 
+        # for further processing (like sky-sub and combinning), we wamt 
+        # to make a new setup table that sorts by object 
+        # TODO also later by prop number, to avoid disclosing data
+        # to other proposals when same object is observed by different PI's
+        object_setup = {}
+
         for key, value in science_configurations.items():
             logger.info(
                 f"Reducing science frames for setup: {key} (window: {value['window']}, x_bin: {value['bin_x']}, y_bin: {value['bin_y']}, filter: {value['filter']}) with {len(value['files'])} science frames"
             )
+
+            object_setup[key] = {}
 
             # reset the bools for this configuration
             skip_dark = skip_dark_input
@@ -752,6 +761,17 @@ class Instrument:
                     # fallback: create CCDData without header
                     ccd_data = CCDData(hdul[self.data_hdu_extension].data, unit=u.adu)
 
+                # put the object in the object setup 
+                object_name = get_header_value(hdul, self.object_keyword, logger)
+
+                if object_name not in object_setup[key]:
+                    object_setup[key][object_name] = {
+                        "files": [],
+                        "filter": value["filter"],
+                    }
+
+                object_setup[key][object_name]["files"].append(file)
+
                 if not skip_dark:
 
                     logger.info(
@@ -859,7 +879,84 @@ class Instrument:
                         ),
                     },
                 )
+        
+        # write the object setup to disk for later use in sky subtraction and combining
+        object_setup_path = os.path.join(output_dir, "object_setup.json")
+        with open(object_setup_path, "w") as f:
+            json.dump(object_setup, f)
 
+
+        return object_setup
+
+
+    def subtract_sky_dither(self, output_path, logger, object_setup=None):
+
+        # load the object setup from disk if not provided
+        if object_setup is None:
+            object_setup_path = os.path.join(output_path, "object_setup.json")
+            try:
+                with open(object_setup_path, "r") as f:
+                    object_setup = json.load(f)
+            except FileNotFoundError:
+                logger.error(
+                    f"No object setup found at {object_setup_path}. Cannot perform sky subtraction without object setup."
+                )
+                logger.error("Run the reduction first")
+                return
+            
+
+
+        for key, value in object_setup.items():
+            logger.info(f"Performing sky subtraction for setup {key}: {value} using dithering method.")
+
+            for object_name, object_value in value.items():
+                logger.info(f"Performing sky subtraction for object {object_name} in setup {key} using dithering method.")
+
+                files = object_value["files"]
+
+                if len(files) < 2:
+                    logger.warning(f"Not enough files for object {object_name} in setup {key} to perform sky subtraction using dithering method. Need at least 2 files, found {len(files)}. Skipping.")
+                    continue
+
+                sky_stack = []
+                # TODO hacky but works
+                filenames = []
+
+                # first - construct the sky
+                for file in files:
+
+                    frame = read_frame(output_path, f"reduced_science_{file}", self, logger)
+                    sky_stack.append(frame.data)
+                    filenames.append(file)
+
+                # combine the sky stack to create a master sky frame
+                master_sky = combine(sky_stack, method="median", sigma_clip=True, sigma_clip_low_thresh=2, sigma_clip_high_thresh=2)
+
+                plt.imshow(master_sky.data, cmap="gray", origin="lower", vmin=np.percentile(master_sky.data, 30), vmax=np.percentile(master_sky.data, 9))
+                plt.colorbar()
+                plt.title(f"Master Sky Frame for object {object_name} in setup {key}")
+                plt.savefig(os.path.join(output_path, f"master_sky_{object_name}_{key}.png"))
+                plt.show()
+                plt.close()
+
+
+                for i,frame in enumerate(sky_stack):
+
+                    sky_subtracted = frame - master_sky.data
+
+
+                    percentile_lower = np.nanpercentile(sky_subtracted.data, 5)
+                    percentile_upper = np.nanpercentile(sky_subtracted.data, 95)
+
+                    plt.close()
+                    plt.imshow(sky_subtracted.data, cmap="gray", origin="lower", vmin=percentile_lower, vmax=percentile_upper)
+                    plt.colorbar()
+                    plt.title(f"Sky Subtracted Frame for {filenames[i]} of object {object_name} in setup {key}")
+                    plt.savefig(os.path.join(output_path, f"sky_subtracted_{filenames[i].split('.')[0]}.png"))
+                    plt.show()
+                    plt.close()
+
+   
 
 class ALFOSC(Instrument):
     """ALFOSC instrument configuration for NOT telescope"""
@@ -1304,3 +1401,51 @@ class NOTCAM(Instrument):
             skip_bias = True,
             skip_flats = False,
         )
+    
+
+    def subtract_sky_dither(self, output_path, logger, object_setup=None):
+        # load the object setup from disk if not provided
+        if object_setup is None:
+            object_setup_path = os.path.join(output_path, "object_setup.json")
+            try:
+                with open(object_setup_path, "r") as f:
+                    object_setup = json.load(f)
+            except FileNotFoundError:
+                logger.error(
+                    f"No object setup found at {object_setup_path}. Cannot perform sky subtraction without object setup."
+                )
+                logger.error("Run the reduction first")
+                return
+            
+
+        # For NOTcam, the object names are always altered such that for every 
+        # dither, the name will be "object n", where n is the dither number. 
+        # Therefore, the object_setup is initially mapped "wrong", 
+        # and we need to remap it, such so it is only sorted by object name
+
+        logger.info("Remapping object setup for NOTCAM to group by object name only")
+
+        remapped_object_setup = {}
+        for key, value in object_setup.items():
+
+            remapped_object_setup[key] = {}
+            for object_name, object_value in value.items():
+
+                cleaned_object_name = object_name.split(" ")[0]  # take only the first part of the name, e.g. "object" from "object 1"
+
+                if cleaned_object_name not in remapped_object_setup[key]:
+                    remapped_object_setup[key][cleaned_object_name] = {
+                        "files": [],
+                        "filter": object_value["filter"],
+                    }
+
+                remapped_object_setup[key][cleaned_object_name]["files"].extend(
+                    object_value["files"]
+                )
+
+
+        object_setup = remapped_object_setup
+
+        return super().subtract_sky_dither(output_path, logger, object_setup=object_setup)
+
+        

@@ -1,3 +1,4 @@
+* Sorting objects should account for prop number
 * Make a wrapper for creatind CCD data frames
 * Make a skip_dark option for the flat method
 * One method for opening master files for calibs

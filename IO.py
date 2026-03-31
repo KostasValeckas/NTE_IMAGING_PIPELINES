@@ -91,9 +91,15 @@ def write_frame(
 
     # append the bad pixel mask as a new HDU to the HDUList
     orig_header = hdul[instrument.data_hdu_extension].header
-    bad_pixel_hdu = fits.ImageHDU(
-        data=bad_pixel_mask.astype(np.uint8), name="BAD_PIXEL_MASK"
-    )
+    if bad_pixel_mask is not None:
+        bad_pixel_hdu = fits.ImageHDU(
+            data=bad_pixel_mask.astype(np.uint8), name="BAD_PIXEL_MASK"
+        )
+    else:
+        # if no bad pixel mask provided, create an empty one with same shape as data
+        bad_pixel_hdu = fits.ImageHDU(
+            data=np.zeros_like(master_frame, dtype=np.uint8), name="BAD_PIXEL_MASK"
+        )
 
     # ensure the extension name is correct
     bad_pixel_hdu.header["EXTNAME"] = "BAD_PIXEL_MASK"

@@ -45,6 +45,8 @@ class ReductionPipeline:
 
     def run_pipeline(self):
 
+        """
+
         self.logger.info("Starting reduction pipeline")
 
         self.logger.info(f"Output and log files will be saved in: {self.output_dir}...")
@@ -54,6 +56,8 @@ class ReductionPipeline:
         self.bias_files, self.dark_files, self.flat_files, self.science_files = (
             sort_data(self.instrument, self.logger, self.raw_data_path, self.output_dir)
         )
+
+        
 
         self.logger.info("Determinning setup configurations...")
 
@@ -106,11 +110,17 @@ class ReductionPipeline:
             )
         )
 
-        self.instrument.reduce_science_frames(
+        self.object_setuo = self.instrument.reduce_science_frames(
             self.raw_data_path,
             self.output_dir,
             self.setup_table,
             self.logger,
             science_to_bias_map=self.science_to_bias_map,
             show_plots=self.show_plots,
+        )
+
+        """
+
+        self.instrument.subtract_sky_dither(
+            self.output_dir, self.logger
         )
