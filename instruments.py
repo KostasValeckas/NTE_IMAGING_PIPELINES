@@ -919,6 +919,7 @@ class Instrument:
                     continue
 
                 sky_stack = []
+                raw_file_stack = []
                 # TODO hacky but works
                 filenames = []
 
@@ -926,8 +927,23 @@ class Instrument:
                 for file in files:
 
                     frame = read_frame(output_path, f"reduced_science_{file}", self, logger)
-                    sky_stack.append(frame.data)
+                    if len(filenames) == 0:
+                        sky_stack.append(frame.data)
+                        print(f"Type {type(frame.data)}")
+                        first_frame_median = np.nanmedian(frame.data.data)
+                        print(f"First frame median for object {object_name} in setup {key}: {first_frame_median}")
+                    
+                    else:
+
+                        frame_median = np.nanmedian(frame.data.data)
+                        print(f"Frame median for file {file} of object {object_name} in setup {key}: {frame_median}")
+                        scale_factor = frame_median / first_frame_median if first_frame_median != 0 else 1
+                        scaled_frame = CCDData(frame.data.data / scale_factor, unit=u.adu, meta=frame.data.meta)   
+                        print(f"Type {type(scaled_frame.data)}")
+                        sky_stack.append(scaled_frame)
+
                     filenames.append(file)
+                    raw_file_stack.append(frame.data)
 
                 # combine the sky stack to create a master sky frame
                 master_sky = combine(sky_stack, method="median", sigma_clip=True, sigma_clip_low_thresh=2, sigma_clip_high_thresh=2)
@@ -940,10 +956,14 @@ class Instrument:
                 plt.close()
 
 
-                for i,frame in enumerate(sky_stack):
+                for i,frame in enumerate(raw_file_stack):
 
-                    sky_subtracted = frame - master_sky.data
+                    frame_median = np.nanmedian(frame)
+                    sky_median = np.nanmedian(master_sky.data)
 
+                    scale_factor = frame_median / sky_median if sky_median != 0 else 1
+
+                    sky_subtracted = frame - master_sky.data * scale_factor
 
                     percentile_lower = np.nanpercentile(sky_subtracted.data, 5)
                     percentile_upper = np.nanpercentile(sky_subtracted.data, 95)
