@@ -146,7 +146,7 @@ def read_frame(output_path, name, instrument, logger: Logger):
     file_path = os.path.join(output_path, name)
 
     try:
-        hdul = open_fits_file(file_path, logger)
+        hdul = open_fits_file(file_path, logger).copy()
 
     except Exception as e:
         logger.error(f"Error reading frame from {file_path}: {e}")

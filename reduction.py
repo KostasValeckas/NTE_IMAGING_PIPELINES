@@ -45,7 +45,6 @@ class ReductionPipeline:
 
     def run_pipeline(self):
 
-        """
 
         self.logger.info("Starting reduction pipeline")
 
@@ -69,6 +68,8 @@ class ReductionPipeline:
             self.science_files,
         )
 
+
+
         self.bias_configurations, self.science_to_bias_map = create_bias_table(
             self.instrument,
             self.logger,
@@ -77,6 +78,8 @@ class ReductionPipeline:
             self.setup_table,
             self.bias_files,
         )
+
+        """
 
         self.master_biases, self.bad_pixel_masks_bias = (
             self.instrument.make_master_bias(
@@ -110,6 +113,8 @@ class ReductionPipeline:
             )
         )
 
+        
+
         self.object_setuo = self.instrument.reduce_science_frames(
             self.raw_data_path,
             self.output_dir,
@@ -121,6 +126,7 @@ class ReductionPipeline:
 
         """
 
+
         self.instrument.subtract_sky_dither(
-            self.output_dir, self.logger
+            self.output_dir, self.logger, show_plots=self.show_plots
         )
