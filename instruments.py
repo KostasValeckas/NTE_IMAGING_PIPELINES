@@ -53,6 +53,8 @@ class Instrument:
         data_hdu_extension: Optional[int] = None,
         object_keyword: Optional[tuple[str, int]] = None,
         exposure_time_keyword: Optional[tuple[str, int]] = None,
+        RA_keyword: Optional[tuple[str, int]] = None,
+        DEC_keyword: Optional[tuple[str, int]] = None
     ):
         self.name = name
         self.detector = detector if detector is not None else Detector()
@@ -85,6 +87,9 @@ class Instrument:
         )
 
         self.data_hdu_extension = data_hdu_extension
+
+        self.RA_keyword = RA_keyword if RA_keyword is not None else (None, 0)
+        self.DEC_keyword = DEC_keyword if DEC_keyword is not None else (None, 0)
 
     def match_image_type(self, hdul) -> Optional[ImageType]:
 
@@ -625,8 +630,8 @@ class Instrument:
         skip_bias_input = skip_bias
         skip_flats_input = skip_flats
 
-        # for further processing (like sky-sub and combinning), we wamt 
-        # to make a new setup table that sorts by object 
+        # for further processing (like sky-sub and combinning), we wamt
+        # to make a new setup table that sorts by object
         # TODO also later by prop number, to avoid disclosing data
         # to other proposals when same object is observed by different PI's
         object_setup = {}
@@ -761,13 +766,14 @@ class Instrument:
                     # fallback: create CCDData without header
                     ccd_data = CCDData(hdul[self.data_hdu_extension].data, unit=u.adu)
 
-                # put the object in the object setup 
+                # put the object in the object setup
                 object_name = get_header_value(hdul, self.object_keyword, logger)
 
                 if object_name not in object_setup[key]:
                     object_setup[key][object_name] = {
                         "files": [],
                         "filter": value["filter"],
+                        "sky_frames": [],
                     }
 
                 object_setup[key][object_name]["files"].append(file)
@@ -842,7 +848,9 @@ class Instrument:
 
                 # copy only HDUs up to and including the configured data extension
                 max_index = min(self.data_hdu_extension, len(hdul) - 1)
-                hdul_copy = fits.HDUList([hdu.copy() for i, hdu in enumerate(hdul) if i <= max_index])
+                hdul_copy = fits.HDUList(
+                    [hdu.copy() for i, hdu in enumerate(hdul) if i <= max_index]
+                )
 
                 write_frame(
                     self,
@@ -881,17 +889,38 @@ class Instrument:
                         ),
                     },
                 )
-        
+
         # write the object setup to disk for later use in sky subtraction and combining
         object_setup_path = os.path.join(output_dir, "object_setup.json")
         with open(object_setup_path, "w") as f:
             json.dump(object_setup, f)
 
-
         return object_setup
 
+    def random_median_calc(self, frame):
+        """
+        TEST
 
-    def subtract_sky_dither(self, output_path, logger, object_setup=None, show_plots=False):
+        Take random 50 of 100 x 100 pixel windows and calculate the
+        median of them each, and return the median of that list
+        """
+
+        data = np.array(frame)
+
+        ny, nx = data.shape
+
+        medians = []
+        for _ in range(50):
+            x0 = np.random.randint(0, nx - 100)
+            y0 = np.random.randint(0, ny - 100)
+            window = data[y0 : y0 + 100, x0 : x0 + 100]
+            medians.append(np.nanmedian(window))
+
+        return np.nanmedian(medians)
+
+    def subtract_sky_dither(
+        self, output_path, logger, object_setup=None, show_plots=False
+    ):
 
         # load the object setup from disk if not provided
         if object_setup is None:
@@ -905,20 +934,18 @@ class Instrument:
                 )
                 logger.error("Run the reduction first")
                 return
-            
-
 
         for key, value in object_setup.items():
-            logger.info(f"Performing sky subtraction for setup {key}: {value} using dithering method.")
+
+            # TODO : the way the loop identifies what sky-subtraction method
+            # to use results in a lot of repeated code and needs a huge
+            # refactor. But the functionality is there
+
+            logger.info(
+                f"Performing sky subtraction for setup {key}: {value} using dithering method."
+            )
 
             for object_name, object_value in value.items():
-                logger.info(f"Performing sky subtraction for object {object_name} in setup {key} using dithering method.")
-
-                files = object_value["files"]
-
-                if len(files) <= 2:
-                    logger.warning(f"Not enough files for object {object_name} in setup {key} to perform sky subtraction using dithering method. Need at least 3 files, found {len(files)}. Skipping.")
-                    continue
 
                 sky_stack = []
                 raw_file_stack = []
@@ -927,126 +954,446 @@ class Instrument:
                 hduls = []
                 bpms = []
 
-                # take only the median of the center of the frame - these 
-                # will be calculated at the first frame
-                ny, nx = None, None
-                x0 = None
-                x1 = None
-                y0 = None
-                y1 = None
+                if len(object_value["sky_frames"]) > 0:
+                    logger.info(f"Found sky frames for object {object_name}")
+
+                    for file in object_value["sky_frames"]:
+
+                        print(f"Running file {file}")
+
+                        frame = read_frame(
+                            output_path, f"reduced_science_{file}", self, logger
+                        )
+
+                        bpms.append(frame.bpm)
+                        masked_frame = frame.data.copy()
+                        if frame.bpm is not None:
+                            masked_frame = np.ma.masked_array(
+                                masked_frame, mask=frame.bpm
+                            )
+
+                        if len(sky_stack) == 0:
+                            sky_stack.append(frame.data.copy())
+                            print(f"Type {type(frame.data)}")
+
+                            first_frame_median = self.random_median_calc(frame.data)
+                            print(
+                                f"First frame median for object {object_name} in setup {key}: {first_frame_median}"
+                            )
+
+                        else:
+
+                            print("in else")
+
+                            frame_median = self.random_median_calc(frame.data.data)
+                            print(
+                                f"Frame median for file {file} of object {object_name} in setup {key}: {frame_median}"
+                            )
+                            scale_factor = frame_median / first_frame_median
+                            scaled_frame = CCDData(
+                                frame.data.data / scale_factor,
+                                unit=u.adu,
+                                meta=frame.data.meta,
+                            )
+                            print(f"Type {type(scaled_frame.data)}")
+
+                            sky_stack.append(scaled_frame)
+
+                    # combine the sky stack to create a master sky frame
+                    master_sky = combine(
+                        sky_stack,
+                        method="median",
+                        sigma_clip=True,
+                        sigma_clip_low_thresh=2,
+                        sigma_clip_high_thresh=2,
+                    )
+                    plt.imshow(
+                        master_sky.data,
+                        cmap="gray",
+                        origin="lower",
+                        vmin=np.percentile(master_sky.data, 30),
+                        vmax=np.percentile(master_sky.data, 9),
+                    )
+                    plt.colorbar()
+                    plt.title(
+                        f"Master Sky Frame for object {object_name} in setup {key}"
+                    )
+                    plt.savefig(
+                        os.path.join(output_path, f"master_sky_{object_name}_{key}.png")
+                    )
+                    if show_plots:
+                        plt.show()
+                    plt.close()
+
+                    files = object_value["files"]
+
+                    for file in files:
+
+                        frame = read_frame(
+                            output_path, f"reduced_science_{file}", self, logger
+                        )
+
+                        filenames.append(file)
+                        raw_file_stack.append(frame.data.data.copy())
+                        hduls.append(frame.hdul)
+
+                    # write sky frame to the output directory
+                    # take the hdul from middle science frame, copy it, replace the data with master sky and write to disk
+                    write_frame(
+                        self,
+                        hduls[len(files) // 2],
+                        master_sky.data,
+                        f"master_sky_{object_name}_{key}",
+                        output_path,
+                        logger,
+                    )
+
+                    for i, frame in enumerate(raw_file_stack):
+
+                        frame_median = self.random_median_calc(frame)
+                        sky_median = self.random_median_calc(master_sky)
+
+                        scale_factor = frame_median / sky_median
+
+                        sky_subtracted = frame - master_sky.data * scale_factor
+
+                        sky_subtracted_median = self.random_median_calc(sky_subtracted)
+
+                        plt.close()
+                        # get numpy array from CCDData-like or plain array
+                        img = np.array(getattr(sky_subtracted, "data", sky_subtracted))
+
+                        vmin = np.nanpercentile(img, 5)
+                        vmax = np.nanpercentile(img, 95)
+
+                        plt.figure(figsize=(8, 6))
+                        plt.imshow(
+                            img, cmap="gray", origin="lower", vmin=vmin, vmax=vmax
+                        )
+                        plt.colorbar()
+                        plt.title(
+                            f"Sky Subtracted: {filenames[i]}, median: {sky_subtracted_median:.2f}"
+                        )
+                        plt.tight_layout()
+                        save_path = os.path.join(
+                            output_path,
+                            f"sky_subtracted_{filenames[i].split('.')[0]}.png",
+                        )
+                        plt.savefig(save_path)
+                        if show_plots:
+                            plt.show()
+                        plt.close()
+
+                        hdul_copy = fits.HDUList(hduls[i].copy())
+
+                        write_frame(
+                            self,
+                            hdul_copy,
+                            sky_subtracted.data,
+                            f"sky_subtracted_{filenames[i]}",
+                            output_path,
+                            logger,
+                            comment=f"Sky subtracted using sky frames on {datetime.now().isoformat()} with master sky frame created from {len(files)} frames.",
+                            header_updates={
+                                "SKYSUB": (
+                                    True,
+                                    "Indicates this frame has been sky subtracted",
+                                ),
+                                "SKYSUBMETH": (
+                                    "SKYFRAMES",
+                                    "Indicates the method used for sky subtraction",
+                                ),
+                                "SKYSUBKEY": (
+                                    f"master_sky_{object_name}_{key}",
+                                    "Key of the master sky frame used for subtraction",
+                                ),
+                            },
+                        )
+
+                    continue
+
+                files = object_value["files"]
+
+                if len(files) == 1:
+
+                    file = files[0]
+
+                    logger.warning(
+                        f"Only one exposure exists for object {object}. Will only subtract the median"
+                    )
+
+                    frame = read_frame(
+                        output_path, f"reduced_science_{file}", self, logger
+                    )
+                    frame_median = self.random_median_calc(frame)
+
+                    skysubbed_frame = frame.data.data - frame_median
+
+                    write_frame(
+                        self,
+                        frame.hdul,
+                        skysubbed_frame,
+                        f"sky_subtracted_{file}",
+                        output_path,
+                        logger,
+                        comment=f"Sky subtracted using frame median on {datetime.now().isoformat()}.",
+                        header_updates={
+                            "SKYSUB": (
+                                True,
+                                "Indicates this frame has been sky subtracted",
+                            ),
+                            "SKYSUBMETH": (
+                                "MEDIAN",
+                                "Indicates the method used for sky subtraction",
+                            ),
+                            "SKYSUBKEY": (
+                                f"master_sky_{object_name}_{key}",
+                                "Key of the master sky frame used for subtraction",
+                            ),
+                        },
+                    )
+
+                    continue
+
+                # at this point more than one dithered frames exist so we 
+                # need to calculate whether they are dithered or not
+
+
+                RA_list = []
+                DEC_list = []
+
+                for file in files:
+
+                    frame = read_frame(
+                        output_path, f"reduced_science_{file}", self, logger
+                    )
+
+                    RA = get_header_value(frame.hdul, self.RA_keyword, logger)
+                    DEC = get_header_value(frame.hdul, self.DEC_keyword, logger)
+
+                    RA_list.append(RA)
+                    DEC_list.append(DEC)
+
+                RA_list_rounded = [np.round(i, 3) for i in RA_list]
+                DEC_list_rounded = [np.round(i, 3) for i in DEC_list]
                 
+                RA_diff_list = RA_list_rounded - np.roll(RA_list_rounded, 1)
+                DEC_diff_list = DEC_list_rounded - np.roll(DEC_list_rounded, 1)
+
+                RA_dith_bool = True if np.abs(RA_diff_list.all()) > 0 else False
+                DEC_dith_bool = True if np.abs(DEC_diff_list.all()) > 0 else False
+
+                dith_bool = RA_dith_bool or DEC_dith_bool
+
+                logger.info(f"Dithering detected for objecy {object_name}: {dith_bool}")
+
+                if not dith_bool:
+
+                    logger.warning(f"No dithering detected for object {object_name}. Will only perform median sky subtraction...")
+
+
+                    for file in files:
+
+
+                        frame = read_frame(
+                            output_path, f"reduced_science_{file}", self, logger
+                        )
+                        frame_median = self.random_median_calc(frame)
+
+                        skysubbed_frame = frame.data.data - frame_median
+
+                        write_frame(
+                            self,
+                            frame.hdul,
+                            skysubbed_frame,
+                            f"sky_subtracted_{file}",
+                            output_path,
+                            logger,
+                            comment=f"Sky subtracted using frame median on {datetime.now().isoformat()}.",
+                            header_updates={
+                                "SKYSUB": (
+                                    True,
+                                    "Indicates this frame has been sky subtracted",
+                                ),
+                                "SKYSUBMETH": (
+                                    "MEDIAN",
+                                    "Indicates the method used for sky subtraction",
+                                ),
+                                "SKYSUBKEY": (
+                                    f"master_sky_{object_name}_{key}",
+                                    "Key of the master sky frame used for subtraction",
+                                ),
+                            },
+                        )
+
+                    continue
+
+                if len(files) == 2:
+                    logger.info(f"Two dithered frames found for object {object_name}. Will perform A-B subtraction.")
+
+                    file_A = files[0]
+                    file_B = files[1]
+
+                    frame_A = read_frame(
+                            output_path, f"reduced_science_{file_A}", self, logger
+                        )
+                    
+                    frame_B = read_frame(
+                            output_path, f"reduced_science_{file_B}", self, logger
+                        )
+                    
+                    median_A = self.random_median_calc(frame_A)
+                    median_B = self.random_median_calc(frame_B)
+
+                    scale_A_B = median_B / median_A
+                    
+
+
+                    
+
+
+                logger.info(
+                    f"Performing sky subtraction for object {object_name} in setup {key} using dithering method."
+                )
+
+                if len(files) <= 2:
+                    logger.warning(
+                        f"Not enough files for object {object_name} in setup {key} to perform sky subtraction using dithering method. Need at least 3 files, found {len(files)}. Will perform median subtraction pr. frame."
+                    )
+                    continue
 
                 # first - construct the sky
                 for file in files:
 
-
-                    frame = read_frame(output_path, f"reduced_science_{file}", self, logger)
+                    frame = read_frame(
+                        output_path, f"reduced_science_{file}", self, logger
+                    )
                     bpms.append(frame.bpm)
+                    masked_frame = frame.data.copy()
+                    if frame.bpm is not None:
+                        masked_frame = np.ma.masked_array(masked_frame, mask=frame.bpm)
                     if len(filenames) == 0:
                         sky_stack.append(frame.data.copy())
                         print(f"Type {type(frame.data)}")
 
-                        ny, nx = frame.data.shape
-                        x0 = nx // 4
-                        x1 = x0 + nx // 2
-                        y0 = ny // 4
-                        y1 = y0 + ny // 2
-                        
+                        first_frame_median = self.random_median_calc(frame.data)
+                        print(
+                            f"First frame median for object {object_name} in setup {key}: {first_frame_median}"
+                        )
 
-                        first_frame_median = np.nanmedian(frame.data.data[y0:y1,x0:x1])
-                        print(f"First frame median for object {object_name} in setup {key}: {first_frame_median}")
-                    
                     else:
 
-                        frame_median = np.nanmedian(frame.data.data[y0:y1,x0:x1])
-                        print(f"Frame median for file {file} of object {object_name} in setup {key}: {frame_median}")
+                        frame_median = self.random_median_calc(frame.data.data)
+                        print(
+                            f"Frame median for file {file} of object {object_name} in setup {key}: {frame_median}"
+                        )
                         scale_factor = frame_median / first_frame_median
-                        scaled_frame = CCDData(frame.data.data / scale_factor, unit=u.adu, meta=frame.data.meta)   
+                        scaled_frame = CCDData(
+                            frame.data.data / scale_factor,
+                            unit=u.adu,
+                            meta=frame.data.meta,
+                        )
                         print(f"Type {type(scaled_frame.data)}")
                         sky_stack.append(scaled_frame)
 
                     filenames.append(file)
                     raw_file_stack.append(frame.data.data.copy())
                     hduls.append(frame.hdul)
-                    
 
                 # combine the sky stack to create a master sky frame
-                master_sky = combine(sky_stack, method="median", sigma_clip=True, sigma_clip_low_thresh=2, sigma_clip_high_thresh=2)
+                master_sky = combine(
+                    sky_stack,
+                    method="median",
+                    sigma_clip=True,
+                    sigma_clip_low_thresh=2,
+                    sigma_clip_high_thresh=2,
+                )
 
-                plt.imshow(master_sky.data, cmap="gray", origin="lower", vmin=np.percentile(master_sky.data, 30), vmax=np.percentile(master_sky.data, 9))
+                plt.imshow(
+                    master_sky.data,
+                    cmap="gray",
+                    origin="lower",
+                    vmin=np.percentile(master_sky.data, 30),
+                    vmax=np.percentile(master_sky.data, 9),
+                )
                 plt.colorbar()
                 plt.title(f"Master Sky Frame for object {object_name} in setup {key}")
-                plt.savefig(os.path.join(output_path, f"master_sky_{object_name}_{key}.png"))
+                plt.savefig(
+                    os.path.join(output_path, f"master_sky_{object_name}_{key}.png")
+                )
                 if show_plots:
                     plt.show()
                 plt.close()
 
                 # write sky frame to the output directory
                 # take the hdul from middle science frame, copy it, replace the data with master sky and write to disk
-                write_frame(self, hduls[len(files) // 2], master_sky.data, f"master_sky_{object_name}_{key}", output_path, logger)
+                write_frame(
+                    self,
+                    hduls[len(files) // 2],
+                    master_sky.data,
+                    f"master_sky_{object_name}_{key}",
+                    output_path,
+                    logger,
+                )
 
-                for i,frame in enumerate(raw_file_stack):
+                for i, frame in enumerate(raw_file_stack):
 
-                    frame_median = np.nanmedian(frame[y0:y1,x0:x1])
-                    sky_median = np.nanmedian(master_sky[y0:y1,x0:x1])
+                    frame_median = self.random_median_calc(frame)
+                    sky_median = self.random_median_calc(master_sky)
 
-
-
-                    print(frame_median, sky_median)
-
-                    scale_factor = frame_median / sky_median 
+                    scale_factor = frame_median / sky_median
 
                     sky_subtracted = frame - master_sky.data * scale_factor
 
-                    print(np.nanmedian(sky_subtracted.data))
-
-                    percentile_lower = np.nanpercentile(sky_subtracted.data, 5)
-                    percentile_upper = np.nanpercentile(sky_subtracted.data, 95)
+                    sky_subtracted_median = self.random_median_calc(sky_subtracted)
 
                     plt.close()
-                    # create side-by-side plots: left = image, right = histogram clipped to [-200, 200]
-                    fig, (ax_im, ax_hist) = plt.subplots(1, 2, figsize=(12, 6))
+                    # get numpy array from CCDData-like or plain array
+                    img = np.array(getattr(sky_subtracted, "data", sky_subtracted))
 
-                    # ensure we work with a numpy array (sky_subtracted may be a plain array)
-                    # ensure we have a numpy array for the image (sky_subtracted may be an array or CCDData-like)
-                    if hasattr(sky_subtracted, "data"):
-                        img = np.array(sky_subtracted.data)
-                    else:
-                        img = np.array(sky_subtracted)
+                    vmin = np.nanpercentile(img, 5)
+                    vmax = np.nanpercentile(img, 95)
 
-
-
-                    # flatten the central crop for the histogram
-                    img_flat = img[y0:y1,x0:x1].flatten()
-                    img_flat = img_flat[~np.isnan(img_flat)]
-                    img_flat = img_flat[(img_flat >= -200) & (img_flat <= 200)]
-
-                    # Image (left)
-                    vmin = np.nanpercentile(img_flat, 5) if img_flat.size else None
-                    vmax = np.nanpercentile(img_flat, 95) if img_flat.size else None
-                    im = ax_im.imshow(img, cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
-                    fig.colorbar(im, ax=ax_im)
-                    ax_im.set_title(f"Sky Subtracted: {filenames[i]}")
-
-                    # Histogram (right) limited to -200..+200
-                    ax_hist.hist(img_flat, bins=int(np.sqrt(img_flat.size)), color="gray", edgecolor="black")
-                    ax_hist.set_xlim(-200, 200)
-                    ax_hist.set_title("Histogram (range -200 to +200)")
-                    ax_hist.set_xlabel("Pixel Value")
-                    ax_hist.set_ylabel("Frequency")
-
+                    plt.figure(figsize=(8, 6))
+                    plt.imshow(img, cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
+                    plt.colorbar()
+                    plt.title(
+                        f"Sky Subtracted: {filenames[i]}, median: {sky_subtracted_median:.2f}"
+                    )
                     plt.tight_layout()
-                    save_path = os.path.join(output_path, f"sky_subtracted_{filenames[i].split('.')[0]}.png")
+                    save_path = os.path.join(
+                        output_path, f"sky_subtracted_{filenames[i].split('.')[0]}.png"
+                    )
                     plt.savefig(save_path)
                     if show_plots:
                         plt.show()
                     plt.close()
 
- 
-
                     hdul_copy = fits.HDUList(hduls[i].copy())
 
-                    write_frame(self, hdul_copy, sky_subtracted.data, f"sky_subtracted_{filenames[i]}", output_path, logger, comment=f"Sky subtracted using dithering method on {datetime.now().isoformat()} with master sky frame created from {len(files)} frames.", header_updates={"SKYSUB": (True, "Indicates this frame has been sky subtracted"), "SKYSUBMETH": ("DITHER", "Indicates the method used for sky subtraction"), "SKYSUBKEY": (f"master_sky_{object_name}_{key}", "Key of the master sky frame used for subtraction")})
+                    write_frame(
+                        self,
+                        hdul_copy,
+                        sky_subtracted.data,
+                        f"sky_subtracted_{filenames[i]}",
+                        output_path,
+                        logger,
+                        comment=f"Sky subtracted using dithering method on {datetime.now().isoformat()} with master sky frame created from {len(files)} frames.",
+                        header_updates={
+                            "SKYSUB": (
+                                True,
+                                "Indicates this frame has been sky subtracted",
+                            ),
+                            "SKYSUBMETH": (
+                                "DITHER",
+                                "Indicates the method used for sky subtraction",
+                            ),
+                            "SKYSUBKEY": (
+                                f"master_sky_{object_name}_{key}",
+                                "Key of the master sky frame used for subtraction",
+                            ),
+                        },
+                    )
 
 
 class ALFOSC(Instrument):
@@ -1075,6 +1422,8 @@ class ALFOSC(Instrument):
             flat_keyword=["FLAT,SKY"],
             science_keyword=["OBJECT"],
             object_keyword=("OBJECT", 0),
+            RA_keyword=("RA", 0),
+            DEC_keyword=("DEC", 0) 
         )
 
     def match_image_type(self, hdul) -> Optional[ImageType]:
@@ -1183,6 +1532,8 @@ class NOTCAM(Instrument):
             science_keyword=["OBJECT"],
             exposure_time_keyword=("EXPTIME", 1),
             object_keyword=("OBJECT", 0),
+            RA_keyword=("RA", 0),
+            DEC_keyword=("DEC", 0) 
         )
 
     def get_header_value(self, hdul, keyword_tuple) -> Optional[str]:
@@ -1210,7 +1561,10 @@ class NOTCAM(Instrument):
             return ImageType.DARK
 
         if (
-            ("OBJECT" in hdul[0].header["IMAGETYP"])
+            (
+                ("OBJECT" in hdul[0].header["IMAGETYP"])
+                or ("SKY" in hdul[0].header["IMAGETYP"])
+            )
             and (hdul[0].header["IMAGECAT"] == "SCIENCE")
             and (hdul[0].header["NCGRNM"] == "Open")
         ):
@@ -1477,24 +1831,26 @@ class NOTCAM(Instrument):
         skip_bias=False,
         skip_flats=False,
     ):
+
         return super().reduce_science_frames(
             raw_data_path,
             output_dir,
             science_configurations,
             logger,
-            show_plots =show_plots,
-            bad_pixel_masks = bad_pixel_masks,
-            dark_frames = None,
-            bias_frames = None,
-            flat_frames = flat_frames,
-            science_to_bias_map = science_to_bias_map,
-            skip_dark = True,
-            skip_bias = True,
-            skip_flats = False,
+            show_plots=show_plots,
+            bad_pixel_masks=bad_pixel_masks,
+            dark_frames=None,
+            bias_frames=None,
+            flat_frames=flat_frames,
+            science_to_bias_map=science_to_bias_map,
+            skip_dark=True,
+            skip_bias=True,
+            skip_flats=False,
         )
-    
 
-    def subtract_sky_dither(self, output_path, logger, object_setup=None, show_plots=False):
+    def subtract_sky_dither(
+        self, output_path, logger, object_setup=None, show_plots=False
+    ):
         # load the object setup from disk if not provided
         if object_setup is None:
             object_setup_path = os.path.join(output_path, "object_setup.json")
@@ -1507,11 +1863,10 @@ class NOTCAM(Instrument):
                 )
                 logger.error("Run the reduction first")
                 return
-            
 
-        # For NOTcam, the object names are always altered such that for every 
-        # dither, the name will be "object n", where n is the dither number. 
-        # Therefore, the object_setup is initially mapped "wrong", 
+        # For NOTcam, the object names are always altered such that for every
+        # dither, the name will be "object n", where n is the dither number.
+        # Therefore, the object_setup is initially mapped "wrong",
         # and we need to remap it, such so it is only sorted by object name
 
         logger.info("Remapping object setup for NOTCAM to group by object name only")
@@ -1522,19 +1877,54 @@ class NOTCAM(Instrument):
             remapped_object_setup[key] = {}
             for object_name, object_value in value.items():
 
-                cleaned_object_name = object_name.split(" ")[0]  # take only the first part of the name, e.g. "object" from "object 1"
+                cleaned_object_name = object_name.split(" ")[
+                    0
+                ]  # take only the first part of the name, e.g. "object" from "object 1"
 
                 if cleaned_object_name not in remapped_object_setup[key]:
                     remapped_object_setup[key][cleaned_object_name] = {
                         "files": [],
                         "filter": object_value["filter"],
+                        "sky_frames": [],
                     }
 
                 remapped_object_setup[key][cleaned_object_name]["files"].extend(
                     object_value["files"]
                 )
 
-
         object_setup = remapped_object_setup
 
-        return super().subtract_sky_dither(output_path, logger, object_setup=object_setup, show_plots=show_plots)
+        # Now we want to find the sky frames and attach them to the science
+        # objects they come from
+
+        for key in object_setup:
+            for object_name in object_setup[key].keys():
+                if object_name == "sky":
+                    sky_files = object_setup[key][object_name]["files"]
+
+                    for file in sky_files:
+
+                        numerical_part = int(file[4:10])
+
+                        prev_numerical = numerical_part - 1
+
+                        date_part = file[0:4]
+
+                        str_prev_numerical = (
+                            str(prev_numerical)
+                            if len(str(prev_numerical)) == 6
+                            else "0" + str(prev_numerical)
+                        )
+
+                        science_filename = date_part + str_prev_numerical + ".fits"
+
+                        for object in object_setup[key]:
+                            if science_filename in object_setup[key][object]["files"]:
+                                print(
+                                    f"Found mathcing science frame for object {object}. Appending..."
+                                )
+                                object_setup[key][object]["sky_frames"].append(file)
+
+        return super().subtract_sky_dither(
+            output_path, logger, object_setup=object_setup, show_plots=show_plots
+        )
