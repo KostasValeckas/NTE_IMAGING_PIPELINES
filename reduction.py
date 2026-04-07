@@ -65,6 +65,8 @@ class ReductionPipeline:
             self.science_files,
         )
 
+        """
+
         
         self.bias_configurations, self.science_to_bias_map = create_bias_table(
             self.instrument,
@@ -115,6 +117,8 @@ class ReductionPipeline:
             science_to_bias_map=self.science_to_bias_map,
             show_plots=self.show_plots,
         )
+
+        """
 
         
 

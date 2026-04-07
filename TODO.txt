@@ -1,3 +1,8 @@
+* sky subtract dithering sorting should try to double-pass for 2 setups
+* make sky-subraction plots account for bad-pixel masks
+* refactor sky subtraction
+
+
 * Sorting objects should account for prop number
 * Make a wrapper for creatind CCD data frames
 * Make a skip_dark option for the flat method
@@ -5,4 +10,4 @@
 * One method for writing json configuration files
 * Overscan strip in bias
 * One method for creating tables
-
+* Remake the thesis figures by not disclosing data

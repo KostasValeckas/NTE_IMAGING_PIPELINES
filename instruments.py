@@ -1114,6 +1114,10 @@ class Instrument:
 
                 files = object_value["files"]
 
+                #sort the filenames to ensure consistency in other steps
+
+                files.sort()
+
                 if len(files) == 1:
 
                     file = files[0]
@@ -1125,7 +1129,7 @@ class Instrument:
                     frame = read_frame(
                         output_path, f"reduced_science_{file}", self, logger
                     )
-                    frame_median = self.random_median_calc(frame)
+                    frame_median = self.random_median_calc(frame.data)
 
                     skysubbed_frame = frame.data.data - frame_median
 
@@ -1177,15 +1181,24 @@ class Instrument:
                 RA_list_rounded = [np.round(i, 3) for i in RA_list]
                 DEC_list_rounded = [np.round(i, 3) for i in DEC_list]
                 
-                RA_diff_list = RA_list_rounded - np.roll(RA_list_rounded, 1)
-                DEC_diff_list = DEC_list_rounded - np.roll(DEC_list_rounded, 1)
+                RA_unique, RA_unique_indices = np.unique(
+                    RA_list_rounded, return_index=True
+                )
+                DEC_unique, DEC_unique_indices = np.unique(
+                    DEC_list_rounded, return_index=True
+                )
 
-                RA_dith_bool = True if np.abs(RA_diff_list.all()) > 0 else False
-                DEC_dith_bool = True if np.abs(DEC_diff_list.all()) > 0 else False
 
-                dith_bool = RA_dith_bool or DEC_dith_bool
+                dith_bool = False
 
-                logger.info(f"Dithering detected for objecy {object_name}: {dith_bool}")
+                if len(RA_unique) >= 3:
+                    logger.info(f"Found {len(RA_unique)} unique RA values for object {object_name} in setup {key}, indicating dithering in RA")
+                    dith_bool = True
+
+                if len(DEC_unique) >= 3:
+                    logger.info(f"Found {len(DEC_unique)} unique DEC values for object {object_name} in setup {key}, indicating dithering in DEC")
+                    dith_bool = True
+
 
                 if not dith_bool:
 
@@ -1198,9 +1211,30 @@ class Instrument:
                         frame = read_frame(
                             output_path, f"reduced_science_{file}", self, logger
                         )
-                        frame_median = self.random_median_calc(frame)
+
+                        print(frame)
+
+                        frame_median = self.random_median_calc(frame.data)
 
                         skysubbed_frame = frame.data.data - frame_median
+
+
+                        plt.close()
+                        # get numpy array from CCDData-like or plain array
+                        plt.imshow(skysubbed_frame, cmap="gray", origin="lower", vmin=np.nanpercentile(skysubbed_frame, 5), vmax=np.nanpercentile(skysubbed_frame, 95))
+                        plt.colorbar()
+                        plt.title(
+                            f"Sky Subtracted using median estimation: {file}, median: {frame_median:.2f}"
+                        )
+                        plt.tight_layout()
+                        save_path = os.path.join(
+                            output_path,
+                            f"sky_subtracted_{file.split('.')[0]}_median.png",
+                        )
+                        plt.savefig(save_path)
+                        if show_plots:
+                            plt.show()
+                        plt.close()
 
                         write_frame(
                             self,
@@ -1242,13 +1276,68 @@ class Instrument:
                             output_path, f"reduced_science_{file_B}", self, logger
                         )
                     
-                    median_A = self.random_median_calc(frame_A)
-                    median_B = self.random_median_calc(frame_B)
+                    median_A = self.random_median_calc(frame_A.data)
+                    median_B = self.random_median_calc(frame_B.data)
 
-                    scale_A_B = median_B / median_A
+                    scale_A_B = median_A / median_B
+                    scale_B_A = median_B / median_A
+
+                    skysubtracted_A = frame_A.data.data - frame_B.data.data * scale_A_B
+                    skysubtracted_B = frame_B.data.data - frame_A.data.data * scale_B_A
+
+
+                    write_frame(
+                            self,
+                            frame_A.hdul,
+                            skysubtracted_A,
+                            f"sky_subtracted_{file_A}",
+                            output_path,
+                            logger,
+                            comment=f"Sky subtracted using A-B dithering method on {datetime.now().isoformat()}.",
+                            header_updates={
+                                "SKYSUB": (
+                                    True,
+                                    "Indicates this frame has been sky subtracted",
+                                ),
+                                "SKYSUBMETH": (
+                                    "DITHER_AB",
+                                    "Indicates the method used for sky subtraction",
+                                ),
+                                "SKYSUBKEY": (
+                                    f"{file_B}",
+                                    "Key of the frame used for subtraction",
+                                ),
+                            },
+                        )
                     
+                    write_frame(
+                            self,
+                            frame_B.hdul,
+                            skysubtracted_B,
+                            f"sky_subtracted_{file_B}",
+                            output_path,
+                            logger,
+                            comment=f"Sky subtracted using B-A dithering method on {datetime.now().isoformat()}.",
+                            header_updates={
+                                "SKYSUB": (
+                                    True,
+                                    "Indicates this frame has been sky subtracted",
+                                ),
+                                "SKYSUBMETH": (
+                                    "DITHER_BA",
+                                    "Indicates the method used for sky subtraction",
+                                ),
+                                "SKYSUBKEY": (
+                                    f"{file_A}",
+                                    "Key of the frame used for subtraction",
+                                ),
+                            },
+                        )
+                    
+                    continue
 
 
+                # at this point regular dithering is the only option left
                     
 
 
@@ -1256,14 +1345,10 @@ class Instrument:
                     f"Performing sky subtraction for object {object_name} in setup {key} using dithering method."
                 )
 
-                if len(files) <= 2:
-                    logger.warning(
-                        f"Not enough files for object {object_name} in setup {key} to perform sky subtraction using dithering method. Need at least 3 files, found {len(files)}. Will perform median subtraction pr. frame."
-                    )
-                    continue
+
 
                 # first - construct the sky
-                for file in files:
+                for i,file in enumerate(files):
 
                     frame = read_frame(
                         output_path, f"reduced_science_{file}", self, logger
@@ -1272,29 +1357,33 @@ class Instrument:
                     masked_frame = frame.data.copy()
                     if frame.bpm is not None:
                         masked_frame = np.ma.masked_array(masked_frame, mask=frame.bpm)
-                    if len(filenames) == 0:
-                        sky_stack.append(frame.data.copy())
-                        print(f"Type {type(frame.data)}")
+                    
+                    # only unique dithers used
+                    if i in RA_unique_indices or i in DEC_unique_indices:
 
-                        first_frame_median = self.random_median_calc(frame.data)
-                        print(
-                            f"First frame median for object {object_name} in setup {key}: {first_frame_median}"
-                        )
+                        if len(filenames) == 0:
+                            sky_stack.append(frame.data.copy())
+                            print(f"Type {type(frame.data)}")
 
-                    else:
+                            first_frame_median = self.random_median_calc(frame.data)
+                            print(
+                                f"First frame median for object {object_name} in setup {key}: {first_frame_median}"
+                            )
 
-                        frame_median = self.random_median_calc(frame.data.data)
-                        print(
-                            f"Frame median for file {file} of object {object_name} in setup {key}: {frame_median}"
-                        )
-                        scale_factor = frame_median / first_frame_median
-                        scaled_frame = CCDData(
-                            frame.data.data / scale_factor,
-                            unit=u.adu,
-                            meta=frame.data.meta,
-                        )
-                        print(f"Type {type(scaled_frame.data)}")
-                        sky_stack.append(scaled_frame)
+                        else:
+
+                            frame_median = self.random_median_calc(frame.data.data)
+                            print(
+                                f"Frame median for file {file} of object {object_name} in setup {key}: {frame_median}"
+                            )
+                            scale_factor = frame_median / first_frame_median
+                            scaled_frame = CCDData(
+                                frame.data.data / scale_factor,
+                                unit=u.adu,
+                                meta=frame.data.meta,
+                            )
+                            print(f"Type {type(scaled_frame.data)}")
+                            sky_stack.append(scaled_frame)
 
                     filenames.append(file)
                     raw_file_stack.append(frame.data.data.copy())
