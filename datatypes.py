@@ -24,5 +24,5 @@ class Processed_frame:
     def __init__(self, hdul, data, bpm):
 
         self.hdul = hdul
-        self.data = CCDData(data, unit=u.adu, mask=bpm if bpm is not None else None)
+        self.data = CCDData(data, unit=u.adu)
         self.bpm = bpm
