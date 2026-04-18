@@ -65,8 +65,8 @@ class ReductionPipeline:
             self.science_files,
         )
 
-        """
-
+        
+        
         
         self.bias_configurations, self.science_to_bias_map = create_bias_table(
             self.instrument,
@@ -76,6 +76,7 @@ class ReductionPipeline:
             self.setup_table,
             self.bias_files,
         )   
+
 
         self.master_biases, self.bad_pixel_masks_bias = (
             self.instrument.make_master_bias(
@@ -118,10 +119,6 @@ class ReductionPipeline:
             show_plots=self.show_plots,
         )
 
-        """
-
-        
-
-        self.instrument.subtract_sky_dither(
+        self.instrument.subtract_sky(
             self.output_dir, self.logger, show_plots=self.show_plots
         )

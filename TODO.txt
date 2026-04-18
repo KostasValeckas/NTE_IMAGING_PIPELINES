@@ -1,6 +1,9 @@
+* CRR removal!
+* implement the use of overscan strips in bias
 * sky subtract dithering sorting should try to double-pass for 2 setups
 * make sky-subraction plots account for bad-pixel masks
 * refactor sky subtraction
+* bias should account for detector and and read-speed
 
 
 * Sorting objects should account for prop number
