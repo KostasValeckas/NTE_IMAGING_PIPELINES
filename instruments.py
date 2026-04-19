@@ -922,11 +922,13 @@ class Instrument:
         self, object_dict, output_path, logger, setup_key, show_plots=False
     ):
 
-        logger.warning(
-            f"Using median sky-subtraction in object {object_name}. Sky-subtraction will likely be not optimal"
-        )
+
 
         for object_name, value in object_dict.items():
+
+            logger.warning(
+                f"Using median sky-subtraction in object {object_name}. Sky-subtraction will likely be not optimal"
+            )
 
             file_list = value["files"]
 
@@ -946,7 +948,7 @@ class Instrument:
                 vmin = np.nanpercentile(skysubbed_frame, 5)
                 vmax = np.nanpercentile(skysubbed_frame, 95)
                 plt.figure(figsize=(8, 6))
-                plt.imshow(frame, cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
+                plt.imshow(skysubbed_frame, cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
                 plt.colorbar()
                 plt.title(
                     f"Sky Subtracted (using frame median): {value['files'][0]}, median: {sky_subtracted_median:.2f}"
@@ -1123,129 +1125,120 @@ class Instrument:
 
                     sky_cube.append(scaled_frame)
 
-                    # take a copy of the middle hdul for writing master
-                    # sky frame to disc
-                    if len(sky_cube) // 2 == len(value["sky_frames"]):
-
-                        hdul_copy = frame.hdul.copy()
+                # take a copy of the middle hdul for writing master
+                # sky frame to disc
+                if len(sky_cube) // 2 == len(value["sky_frames"]):
+                    hdul_copy = frame.hdul.copy()
 
                 # now median-stack all sky frames
 
-                # combine the sky stack to create a master sky frame
-                master_sky = combine(
-                    sky_cube,
-                    method="median",
-                    sigma_clip=True,
-                    sigma_clip_low_thresh=2,
-                    sigma_clip_high_thresh=2,
+            # combine the sky stack to create a master sky frame
+            master_sky = combine(
+                sky_cube,
+                method="median",
+                sigma_clip=True,
+                sigma_clip_low_thresh=2,
+                sigma_clip_high_thresh=2,
+            )
+            plt.imshow(
+                master_sky.data,
+                cmap="gray",
+                origin="lower",
+                vmin=np.percentile(master_sky.data, 30),
+                vmax=np.percentile(master_sky.data, 95),
+            )
+            plt.colorbar()
+            plt.title(
+                f"Master Sky Frame for object {object_name} in setup {setup_key}"
+            )
+            plt.savefig(
+                os.path.join(
+                    output_path, f"master_sky_{object_name}_{setup_key}.png"
                 )
+            )
+            if show_plots:
+                plt.show()
+            plt.close()
+            # write sky frame to the output directory
+            # take the hdul from middle science frame, copy it, replace the data with master sky and write to disk
+            write_frame(
+                self,
+                hdul_copy,
+                master_sky.data,
+                f"master_sky_{object_name}_{setup_key}",
+                output_path,
+                logger,
+            )
+            # now loop through the science frames, scale the sky frame to the science
+            # frame, and subtract the sky
+            # Keep lists of the different components of every frame
+            # TODO: this could be refactored
+            raw_file_stack = []
+            hduls = []
+            bpms = []
+            for file in value["files"]:
+                frame = read_frame(
+                    output_path, f"reduced_science_{file}", self, logger
+                )
+                raw_file_stack.append(frame.data.data.copy())
+                hduls.append(frame.hdul.copy())
+                bpms.append(frame.bpm.copy())
 
-                plt.imshow(
-                    master_sky.data,
-                    cmap="gray",
-                    origin="lower",
-                    vmin=np.percentile(master_sky.data, 30),
-                    vmax=np.percentile(master_sky.data, 9),
-                )
+            for i, frame in enumerate(raw_file_stack):
+                frame_median = self.random_median_calc(frame)
+                sky_median = self.random_median_calc(master_sky)
+                scale_factor = frame_median / sky_median
+                sky_subtracted = frame - master_sky.data * scale_factor
+                sky_subtracted_median = self.random_median_calc(sky_subtracted)
+                # plot and write
+                plt.close()
+
+                if bpms[i] is not None:
+                    mask = np.asarray(bpms[i], dtype=bool)
+                    sky_subtracted = np.ma.masked_array(sky_subtracted, mask=mask)
+
+
+                vmin = np.nanpercentile(frame, 5)
+                vmax = np.nanpercentile(frame, 95)
+                plt.figure(figsize=(8, 6))
+                plt.imshow(sky_subtracted, cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
                 plt.colorbar()
                 plt.title(
-                    f"Master Sky Frame for object {object_name} in setup {setup_key}"
+                    f"Sky Subtracted: {value['files'][i]}, median: {sky_subtracted_median:.2f}"
                 )
-                plt.savefig(
-                    os.path.join(
-                        output_path, f"master_sky_{object_name}_{setup_key}.png"
-                    )
+                plt.tight_layout()
+                save_path = os.path.join(
+                    output_path,
+                    f"sky_subtracted_{value['files'][i].split('.')[0]}.png",
                 )
+                plt.savefig(save_path)
                 if show_plots:
                     plt.show()
                 plt.close()
-
-                # write sky frame to the output directory
-                # take the hdul from middle science frame, copy it, replace the data with master sky and write to disk
+                hdul_copy = fits.HDUList(hduls[i].copy())
                 write_frame(
                     self,
                     hdul_copy,
-                    master_sky.data,
-                    f"master_sky_{object_name}_{setup_key}",
+                    sky_subtracted.data,
+                    f"sky_subtracted_{value['files'][i]}",
                     output_path,
                     logger,
+                    comment=f"Sky subtracted using sky frames on {datetime.now().isoformat()} with master sky frame created from {len(sky_cube)} frames.",
+                    header_updates={
+                        "SKYSUB": (
+                            True,
+                            "Indicates this frame has been sky subtracted",
+                        ),
+                        "SKYSUBMETH": (
+                            "SKYFRAMES",
+                            "Indicates the method used for sky subtraction",
+                        ),
+                        "SKYSUBKEY": (
+                            f"master_sky_{object_name}_{setup_key}",
+                            "Key of the master sky frame used for subtraction",
+                        ),
+                    },
                 )
-
-                # now loop through the science frames, scale the sky frame to the science
-                # frame, and subtract the sky
-
-                # Keep lists of the different components of every frame
-                # TODO: this could be refactored
-
-                raw_file_stack = []
-                hduls = []
-
-                for file in value["files"]:
-
-                    frame = read_frame(
-                        output_path, f"reduced_science_{file}", self, logger
-                    )
-
-                    raw_file_stack.append(frame.data.data.copy())
-                    hduls.append(frame.hdul.copy())
-
-                for i, frame in enumerate(raw_file_stack):
-
-                    frame_median = self.random_median_calc(frame)
-                    sky_median = self.random_median_calc(master_sky)
-
-                    scale_factor = frame_median / sky_median
-                    sky_subtracted = frame - master_sky.data * scale_factor
-
-                    sky_subtracted_median = self.random_median_calc(sky_subtracted)
-
-                    # plot and write
-
-                    plt.close()
-
-                    vmin = np.nanpercentile(sky_subtracted, 5)
-                    vmax = np.nanpercentile(sky_subtracted, 95)
-                    plt.figure(figsize=(8, 6))
-                    plt.imshow(frame, cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
-                    plt.colorbar()
-                    plt.title(
-                        f"Sky Subtracted: {value['files'][i]}, median: {sky_subtracted_median:.2f}"
-                    )
-                    plt.tight_layout()
-                    save_path = os.path.join(
-                        output_path,
-                        f"sky_subtracted_{value['files'][i].split('.')[0]}.png",
-                    )
-                    plt.savefig(save_path)
-                    if show_plots:
-                        plt.show()
-                    plt.close()
-
-                    hdul_copy = fits.HDUList(hduls[i].copy())
-
-                    write_frame(
-                        self,
-                        hdul_copy,
-                        sky_subtracted.data,
-                        f"sky_subtracted_{value['files'][i]}",
-                        output_path,
-                        logger,
-                        comment=f"Sky subtracted using sky frames on {datetime.now().isoformat()} with master sky frame created from {len(files)} frames.",
-                        header_updates={
-                            "SKYSUB": (
-                                True,
-                                "Indicates this frame has been sky subtracted",
-                            ),
-                            "SKYSUBMETH": (
-                                "SKYFRAMES",
-                                "Indicates the method used for sky subtraction",
-                            ),
-                            "SKYSUBKEY": (
-                                f"master_sky_{object_name}_{setup_key}",
-                                "Key of the master sky frame used for subtraction",
-                            ),
-                        },
-                    )
 
     def subtract_sky(self, output_path, logger, object_setup=None, show_plots=False):
         """
@@ -1369,142 +1362,15 @@ class Instrument:
                     f"Performing sky subtraction for object {object_name} in setup {key} using dithering method."
                 )
 
-                # first - construct the sky
-                for i, file in enumerate(files):
 
-                    frame = read_frame(
-                        output_path, f"reduced_science_{file}", self, logger
-                    )
-                    bpms.append(frame.bpm)
-                    masked_frame = frame.data.copy()
-                    if frame.bpm is not None:
-                        masked_frame = np.ma.masked_array(masked_frame, mask=frame.bpm)
-
-                    # only unique dithers used
-                    if i in RA_unique_indices or i in DEC_unique_indices:
-
-                        if len(filenames) == 0:
-                            sky_stack.append(frame.data.copy())
-                            print(f"Type {type(frame.data)}")
-
-                            first_frame_median = self.random_median_calc(frame.data)
-                            print(
-                                f"First frame median for object {object_name} in setup {key}: {first_frame_median}"
-                            )
-
-                        else:
-
-                            frame_median = self.random_median_calc(frame.data.data)
-                            print(
-                                f"Frame median for file {file} of object {object_name} in setup {key}: {frame_median}"
-                            )
-                            scale_factor = frame_median / first_frame_median
-                            scaled_frame = CCDData(
-                                frame.data.data / scale_factor,
-                                unit=u.adu,
-                                meta=frame.data.meta,
-                            )
-                            print(f"Type {type(scaled_frame.data)}")
-                            sky_stack.append(scaled_frame)
-
-                    filenames.append(file)
-                    raw_file_stack.append(frame.data.data.copy())
-                    hduls.append(frame.hdul)
-
-                # combine the sky stack to create a master sky frame
-                master_sky = combine(
-                    sky_stack,
-                    method="median",
-                    sigma_clip=True,
-                    sigma_clip_low_thresh=2,
-                    sigma_clip_high_thresh=2,
-                )
-
-                plt.imshow(
-                    master_sky.data,
-                    cmap="gray",
-                    origin="lower",
-                    vmin=np.percentile(master_sky.data, 30),
-                    vmax=np.percentile(master_sky.data, 9),
-                )
-                plt.colorbar()
-                plt.title(f"Master Sky Frame for object {object_name} in setup {key}")
-                plt.savefig(
-                    os.path.join(output_path, f"master_sky_{object_name}_{key}.png")
-                )
-                if show_plots:
-                    plt.show()
-                plt.close()
-
-                # write sky frame to the output directory
-                # take the hdul from middle science frame, copy it, replace the data with master sky and write to disk
-                write_frame(
-                    self,
-                    hduls[len(files) // 2],
-                    master_sky.data,
-                    f"master_sky_{object_name}_{key}",
+                self.sky_subtract_sky_frame(
+                    object_dict,
                     output_path,
                     logger,
+                    key,
+                    show_plots=show_plots,
+                    skyframes=False,
                 )
-
-                for i, frame in enumerate(raw_file_stack):
-
-                    frame_median = self.random_median_calc(frame)
-                    sky_median = self.random_median_calc(master_sky)
-
-                    scale_factor = frame_median / sky_median
-
-                    sky_subtracted = frame - master_sky.data * scale_factor
-
-                    sky_subtracted_median = self.random_median_calc(sky_subtracted)
-
-                    plt.close()
-                    # get numpy array from CCDData-like or plain array
-                    img = np.array(getattr(sky_subtracted, "data", sky_subtracted))
-
-                    vmin = np.nanpercentile(img, 5)
-                    vmax = np.nanpercentile(img, 95)
-
-                    plt.figure(figsize=(8, 6))
-                    plt.imshow(img, cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
-                    plt.colorbar()
-                    plt.title(
-                        f"Sky Subtracted: {filenames[i]}, median: {sky_subtracted_median:.2f}"
-                    )
-                    plt.tight_layout()
-                    save_path = os.path.join(
-                        output_path, f"sky_subtracted_{filenames[i].split('.')[0]}.png"
-                    )
-                    plt.savefig(save_path)
-                    if show_plots:
-                        plt.show()
-                    plt.close()
-
-                    hdul_copy = fits.HDUList(hduls[i].copy())
-
-                    write_frame(
-                        self,
-                        hdul_copy,
-                        sky_subtracted.data,
-                        f"sky_subtracted_{filenames[i]}",
-                        output_path,
-                        logger,
-                        comment=f"Sky subtracted using dithering method on {datetime.now().isoformat()} with master sky frame created from {len(files)} frames.",
-                        header_updates={
-                            "SKYSUB": (
-                                True,
-                                "Indicates this frame has been sky subtracted",
-                            ),
-                            "SKYSUBMETH": (
-                                "DITHER",
-                                "Indicates the method used for sky subtraction",
-                            ),
-                            "SKYSUBKEY": (
-                                f"master_sky_{object_name}_{key}",
-                                "Key of the master sky frame used for subtraction",
-                            ),
-                        },
-                    )
 
 
 class ALFOSC(Instrument):

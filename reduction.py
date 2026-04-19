@@ -1,7 +1,7 @@
 from instruments import Instrument
 from logger import init_logger
 from sorting import sort_data, create_setup_table, create_bias_table, create_flat_table
-
+from photometric_calibs import *
 
 class ReductionPipeline:
     def __init__(
@@ -43,6 +43,8 @@ class ReductionPipeline:
 
         self.master_flats = None
 
+        self.object_setup = None
+
     def run_pipeline(self):
 
         self.logger.info("Starting reduction pipeline")
@@ -65,9 +67,6 @@ class ReductionPipeline:
             self.science_files,
         )
 
-        
-        
-        
         self.bias_configurations, self.science_to_bias_map = create_bias_table(
             self.instrument,
             self.logger,
@@ -76,7 +75,6 @@ class ReductionPipeline:
             self.setup_table,
             self.bias_files,
         )   
-
 
         self.master_biases, self.bad_pixel_masks_bias = (
             self.instrument.make_master_bias(
@@ -109,7 +107,7 @@ class ReductionPipeline:
                 show_plots=self.show_plots,
             )
         )
-
+        
         self.object_setuo = self.instrument.reduce_science_frames(
             self.raw_data_path,
             self.output_dir,
@@ -118,7 +116,35 @@ class ReductionPipeline:
             science_to_bias_map=self.science_to_bias_map,
             show_plots=self.show_plots,
         )
+        
 
         self.instrument.subtract_sky(
             self.output_dir, self.logger, show_plots=self.show_plots
         )
+
+    def run_photometric_calibrations(self):
+
+        # load the object setup from disk if not provided
+        if self.object_setup is None:
+            object_setup_path = os.path.join(self.output_dir, "object_setup.json")
+            try:
+                with open(object_setup_path, "r") as f:
+                    self.object_setup = json.load(f)
+            except FileNotFoundError:
+                self.logger.error(
+                    f"No object setup found at {object_setup_path}. Cannot perform sky subtraction without object setup."
+                )
+                self.logger.error("Run the reduction first")
+                return        
+
+        if self.instrument.name == "ALFOSC":
+            parser = ALFOSC_parser(self.output_dir, self.logger, self.object_setup, show_plots=self.show_plots)
+            
+
+        if self.instrument.name == "NOTCAM":
+            parser = NOTCAM_parser(self.output_dir, self.logger, self.object_setup, show_plots=self.show_plots)
+
+
+        parser.run()
+
+
