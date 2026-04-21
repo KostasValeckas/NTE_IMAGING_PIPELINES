@@ -6,8 +6,6 @@ from instruments import *
 
 from reduction import ReductionPipeline
 
-
-
 if __name__ == "__main__":
 
     # TODO: should logger be initialized already here?

@@ -37,8 +37,8 @@ class Photometric_parser():
         subprocess.run(command, cwd=self.reduced_dir, check=True)
 
     def run_swarp(self, command):
-        # Do this when WCS is solid
-        pass
+        print('Executing:', ' '.join(shlex.quote(a) for a in command))
+        subprocess.run(command, cwd=self.reduced_dir, check=True)
 
     def plot_apertures(self, masked_frame, good_objects, filename):
         """
@@ -124,6 +124,31 @@ class Photometric_parser():
             plt.close()
 
 
+        def query_SDSS():
+            # TODO implement this to query SDSS for photometric calibration
+            pass
+
+        def query_PanSTARRS():
+            # TODO implement this to query PanSTARRS for photometric calibration
+            pass
+
+        def query_WISE():
+            # TODO implement this to query WISE for photometric calibration
+            pass
+
+        def query_2MASS():
+            # TODO implement this to query 2MASS for photometric calibration
+            pass
+
+        def query_GAIA():
+            # TODO implement this to query GAIA for photometric calibration
+            pass
+
+        def query_HST():
+            # TODO implement this to query HST for photometric calibration
+            pass
+
+
 
 
 class ALFOSC_parser(Photometric_parser):
@@ -181,6 +206,9 @@ class ALFOSC_parser(Photometric_parser):
 
                 files = info.get('files', [])
 
+                # weights will be created from BPM's
+                weights_filenames = []
+
                 if files is None or len(files) == 0:
                     self.logger.error(f"No files found for {object_name} in {obj_key}. Skipping...")
                     continue
@@ -222,7 +250,11 @@ class ALFOSC_parser(Photometric_parser):
 
                     weights_filename = os.path.join(self.reduced_dir, file.replace('.fits', '_weights.fits'))
 
+                    weights_filenames.append(weights_filename)
+
                     fits.writeto(weights_filename, inverted_bpm.astype(np.uint8), overwrite=True)
+
+                    cat_filename = os.path.join(self.reduced_dir, "reduced_science_" + file.replace('.fits', '.cat'))
 
                     cmd = [
                          'sex',
@@ -231,15 +263,13 @@ class ALFOSC_parser(Photometric_parser):
                          '-PARAMETERS_NAME', self.sex_param,
                          '-WEIGHT_TYPE', 'MAP_WEIGHT',
                          '-WEIGHT_IMAGE', weights_filename,
-                         '-CATALOG_NAME', file.replace('.fits', '.cat'),
+                         '-CATALOG_NAME', cat_filename,
                          '-VERBOSE_TYPE', 'FULL'
                      ]
 
-                    self.run_sex(cmd)
+                    #self.run_sex(cmd)
 
-                    table_path = os.path.join(self.reduced_dir, file.replace('.fits', '.cat'))
-
-                    with fits.open(table_path) as hdul_table:
+                    with fits.open(cat_filename) as hdul_table:
                         data_table = hdul_table[2].data
 
 
@@ -250,10 +280,150 @@ class ALFOSC_parser(Photometric_parser):
                     self.plot_apertures(masked_frame, good_objects, file)
 
 
+                    # now run scamp right away
+                    scamp_cmd = [
+                        'scamp', cat_filename,
+                        '-ASTREF_CATALOG', 'GAIA-EDR3',
+                        '-ASTREF_BAND', 'G',
+                        '-VERBOSE_TYPE', 'NORMAL',
+                        '-CHECKPLOT_TYPE', 'NONE'
+                    ]
+                    
+                    #self.run_scamp(scamp_cmd)
+
+
+                final_result_name = f"{object_name}.fits"
+                final_weights_filename = f"{object_name}_weights.fits"
+
+                if stack:
+                    # prepare the lists for stacking using SWarp
                     
 
+                    file_list_name = os.path.join(self.reduced_dir, f"{object_name}_files.list")
+
+                    weights_list_name = os.path.join(self.reduced_dir, f"{object_name}_weights.list")
+
+                    with open(file_list_name, 'w') as f:
+                        for file in files:
+                            f.write(os.path.join(self.reduced_dir, "reduced_science_" + file + '[1]') + '\n')
+
+                    with open(weights_list_name, 'w') as f:
+                        for weights_file in weights_filenames:
+                            f.write(weights_file + '\n')
+
+                    swarp_cmd = [
+                        'SWarp', '@' + file_list_name,
+                        '-c', 'default.swarp',
+
+                        '-IMAGEOUT_NAME', final_result_name,
+
+                        '-COMBINE_TYPE', 'MEDIAN',
+                        '-WEIGHT_IMAGE', '@' + weights_list_name,
+                        '-WEIGHTOUT_NAME', f'swarp_{object_name}_weights.fits',
+
+                        '-PIXEL_SCALE', '0.2138',
+                        '-PIXEL_SCALE_TYPE', 'MANUAL',
+                        '-CENTER_TYPE', 'MOST',
+                        '-SUBTRACT_BACK', 'N',
+                    ]                              
+
+                    self.run_swarp(swarp_cmd)
 
 
+                    # we save the header to force the same transform on the bpm
+
+                    hdr = fits.getheader(os.path.join(self.reduced_dir, final_result_name), ext=0)
+                    fits.writeto(final_result_name.replace('.fits', '.head'), data=None, header=hdr, overwrite=True)
+
+                    x,y = hdr['NAXIS1'], hdr['NAXIS2']
+
+                    # now run it blindly on the weight stack with nearest neibhor to get the combined mask (this is a hack since swarp doesn't support separate bad pixel masks, but it will at least show us which pixels are masked in the final stack)
+                    swarp_mask_cmd = [
+                        'SWarp', '@' + weights_list_name,   
+
+                        '-c', 'default.swarp',
+
+                        '-IMAGEOUT_NAME', final_weights_filename,
+
+                        '-IMAGE_SIZE', f'{x},{y}',
+
+                        # lock geometry to science stack
+                        '-HEADER_NAME', final_result_name.replace('.fits', '.head'),
+
+                        # mask-safe settings
+                        '-RESAMPLING_TYPE', 'NEAREST',
+                        '-COMBINE_TYPE', 'MIN',
+
+                        # disable all weighting logic
+                        '-WEIGHT_TYPE', 'NONE',
+                        '-WEIGHT_IMAGE', '',
+
+                        # disable image “science processing”
+                        '-SUBTRACT_BACK', 'N',
+                        '-RESCALE_WEIGHTS', 'N',
+                        '-FSCALE_KEYWORD', 'NONE',
+                        '-FSCALE_DEFAULT', '1.0',
+                    ]
+
+                    self.run_swarp(swarp_mask_cmd)
+
+
+                    # now read the weights and convert to a bpm
+
+                    with fits.open(os.path.join(self.reduced_dir, final_weights_filename)) as hdul_weights:
+                        weights_data = hdul_weights[0].data
+
+                    bpm_data = np.where(weights_data == 0, 1, 0)
+
+                    #now load the final result and plot for QA 
+
+                    final_result_path = os.path.join(self.reduced_dir, final_result_name)
+                    with fits.open(final_result_path) as hdul_final:
+                        final_data = hdul_final[0].data
+
+                    masked_final = np.ma.masked_where(bpm_data == 1, final_data)
+
+
+                    plt.imshow(masked_final, cmap='gray', origin='lower', vmin = np.percentile(masked_final.compressed(), 5), vmax=np.percentile(masked_final.compressed(), 95))
+                    plt.colorbar()
+                    plt.title(f"Final stacked image for {object_name} with masked pixels.")
+                    plt.xlabel('X Pixel')
+                    plt.ylabel('Y Pixel')
+                    save_path = os.path.join(self.reduced_dir, f"final_{object_name}.png")
+                    plt.savefig(save_path)
+                    if self.show_plots:
+                        plt.show()
+                    else:
+                        plt.close()
+
+                    # now run the SExtractor on the final stack
+
+                    final_cat_filename = os.path.join(self.reduced_dir, final_result_name.replace('.fits', '.cat'))
+
+
+                    # TODO later disable bacground sub when using already subtracted images
+
+                    cmd = [
+                         'sex',
+                         '-c', self.sex_config,
+                         final_result_name,
+                         '-PARAMETERS_NAME', self.sex_param,
+                         '-WEIGHT_TYPE', 'MAP_WEIGHT',
+                         '-WEIGHT_IMAGE', final_weights_filename,
+                         '-CATALOG_NAME', final_cat_filename,
+                         '-VERBOSE_TYPE', 'FULL'
+                    ]
+
+                    self.run_sex(cmd)
+
+                    with fits.open(final_cat_filename) as hdul_table:
+                        data_table = hdul_table[2].data
+
+
+                    good_objects = data_table[data_table['FLAGS'] == 0]
+
+
+                    self.plot_apertures(masked_final, good_objects, file)
 
 
 class NOTCAM_parser(Photometric_parser):
