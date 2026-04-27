@@ -3,6 +3,7 @@ from logger import init_logger
 from sorting import sort_data, create_setup_table, create_bias_table, create_flat_table
 from photometric_calibs import *
 
+
 class ReductionPipeline:
     def __init__(
         self, instrument: Instrument, raw_data_path, output_dir=None, show_plots=False
@@ -74,7 +75,7 @@ class ReductionPipeline:
             self.output_dir,
             self.setup_table,
             self.bias_files,
-        )   
+        )
 
         self.master_biases, self.bad_pixel_masks_bias = (
             self.instrument.make_master_bias(
@@ -107,7 +108,7 @@ class ReductionPipeline:
                 show_plots=self.show_plots,
             )
         )
-        
+
         self.object_setuo = self.instrument.reduce_science_frames(
             self.raw_data_path,
             self.output_dir,
@@ -116,7 +117,6 @@ class ReductionPipeline:
             science_to_bias_map=self.science_to_bias_map,
             show_plots=self.show_plots,
         )
-        
 
         self.instrument.subtract_sky(
             self.output_dir, self.logger, show_plots=self.show_plots
@@ -135,16 +135,22 @@ class ReductionPipeline:
                     f"No object setup found at {object_setup_path}. Cannot perform sky subtraction without object setup."
                 )
                 self.logger.error("Run the reduction first")
-                return        
+                return
 
         if self.instrument.name == "ALFOSC":
-            parser = ALFOSC_parser(self.output_dir, self.logger, self.object_setup, show_plots=self.show_plots)
-            
+            parser = ALFOSC_parser(
+                self.output_dir,
+                self.logger,
+                self.object_setup,
+                show_plots=self.show_plots,
+            )
 
         if self.instrument.name == "NOTCAM":
-            parser = NOTCAM_parser(self.output_dir, self.logger, self.object_setup, show_plots=self.show_plots)
-
+            parser = NOTCAM_parser(
+                self.output_dir,
+                self.logger,
+                self.object_setup,
+                show_plots=self.show_plots,
+            )
 
         parser.run()
-
-

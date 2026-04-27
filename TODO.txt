@@ -1,3 +1,4 @@
+* fix exptime reading in photometric calibrations
 * background subtraction can be done in SExtractor and actually looks pretty good.
 * CRR removal!
 * implement the use of overscan strips in bias

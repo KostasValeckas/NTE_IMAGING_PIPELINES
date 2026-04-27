@@ -15,6 +15,7 @@ import astropy.units as u
 from astroquery.sdss import SDSS
 from astroquery.vizier import Vizier
 from astroquery.vizier import Vizier as _Vizier
+from astroquery.mast import Catalogs
 
 
 class Photometric_parser:
@@ -157,7 +158,15 @@ class Photometric_parser:
         else:
             plt.close()
 
-    def query_SDSS(self, catalog_path, frame_path, filter_string, filter_error_string, object_name="unknown_object"):
+    def query_SDSS(
+        self,
+        catalog_path,
+        frame_path,
+        filter_string,
+        filter_error_string,
+        exptime,
+        object_name="unknown_object",
+    ):
         """
         Returns:
         0 on success, -1 on failure (e.g. no valid matches found)
@@ -177,8 +186,6 @@ class Photometric_parser:
 
         center = SkyCoord(np.mean(ra) * u.deg, np.mean(dec) * u.deg)
 
-
-
         radius = u.Quantity(3, u.arcmin)  # adjust to FoV
 
         # TODO: sensible matching for different filters
@@ -189,9 +196,23 @@ class Photometric_parser:
         )
 
         if sdss is None or len(sdss) == 0:
-            self.logger.error("No SDSS sources found in the field for photometric calibration.")
+            self.logger.error(
+                "No SDSS sources found in the field for photometric calibration."
+            )
             return -1
 
+        # astroquery may return a Table or a list/tuple of tables
+        sdss_table = sdss[0] if isinstance(sdss, (list, tuple)) else sdss
+
+        # ensure required columns exist (case-insensitive)
+        req = ["ra", "dec", filter_string, filter_error_string]
+        colmap = {c.lower(): c for c in sdss_table.colnames}
+        missing = [r for r in req if r.lower() not in colmap]
+        if missing:
+            self.logger.error(
+                f"SDSS result missing columns: {missing}; available: {sdss_table.colnames}"
+            )
+            return -1
 
         sdss_coords = SkyCoord(sdss["ra"] * u.deg, sdss["dec"] * u.deg)
 
@@ -212,7 +233,20 @@ class Photometric_parser:
         # FILTER SExtractor flux
         # -------------------------------
 
-        good_inst = np.isfinite(data_table["MAG_AUTO"])
+        # require FLAG==0 and exclude MAG_AUTO sentinel 99 and non-finite mags
+        if "FLAGS" in data_table.colnames:
+            flags = np.asarray(data_table["FLAGS"])
+            mask_flags = flags == 0
+        else:
+            mask_flags = np.ones(len(data_table), dtype=bool)
+
+        if "MAG_AUTO" in data_table.colnames:
+            mag_auto = np.asarray(data_table["MAG_AUTO"], dtype=float)
+            mask_mag = np.isfinite(mag_auto) & (mag_auto != 99) & (mag_auto != 99.0)
+        else:
+            mask_mag = np.zeros(len(data_table), dtype=bool)
+
+        good_inst = mask_flags & mask_mag
 
         # -------------------------------
         # COMBINE ALL CONDITIONS
@@ -220,17 +254,20 @@ class Photometric_parser:
 
         good = good_sep & good_sdss[idx] & good_inst
 
-        matched_sources = data_table[good]
+        # only for debugging:
+
+        good_flux_auto = data_table["FLUX_AUTO"][good]
+
 
         matched_sdss = sdss[idx[good]]
 
-        instrumental_mag = matched_sources["MAG_AUTO"]
+        # instrumental_mag = matched_sources["MAG_AUTO"]
+
+        instrumental_mag = -2.5 * np.log10(good_flux_auto / exptime)
 
         sdss_mag = matched_sdss[filter_string]
 
         zp_values = sdss_mag - instrumental_mag
-
-        # extra safety: remove any remaining bad values
 
         finite = np.isfinite(zp_values)
 
@@ -246,65 +283,76 @@ class Photometric_parser:
 
         self.logger.info(f"Median Zeropoint: {zp}")
 
-        plt.hist(zp_values, bins=len(zp_values), color='C0', alpha=0.8)
-        plt.axvline(zp, color='C1', linestyle='--', label=f'median = {zp:.3f}')
-        plt.xlabel('Zeropoint (mag)')
-        plt.ylabel('Number of sources')
-        plt.title(f'Zeropoint distribution (median = {zp:.3f})')
+        plt.hist(zp_values, bins=len(zp_values), color="C0", alpha=0.8)
+        plt.axvline(zp, color="C1", linestyle="--", label=f"median = {zp:.3f}")
+        plt.xlabel("Zeropoint (mag)")
+        plt.ylabel("Number of sources")
+        plt.title(f"Zeropoint distribution (median = {zp:.3f})")
         plt.legend()
-        plt.grid(True, ls=':', alpha=0.6)
+        plt.grid(True, ls=":", alpha=0.6)
         plt.tight_layout()
         if self.show_plots:
             plt.show()
         else:
             plt.close()
-        
+
         # write the zeropoints to the table
         data_table[f"ZP_{filter_string}"] = np.nan
 
         # basic quality mask (instrumental sanity checks)
         good = (
-            np.isfinite(data_table["MAG_AUTO"]) &
-            np.isfinite(data_table["FLUX_AUTO"]) &
-            (data_table["FLUX_AUTO"] > 0)
+            np.isfinite(data_table["MAG_AUTO"])
+            & np.isfinite(data_table["FLUX_AUTO"])
+            & (data_table["FLUX_AUTO"] > 0)
         )
 
         # apply zeropoint to create calibrated magnitude array
         calibrated_mag = np.full(len(data_table), np.nan)
-        calibrated_mag[good] = data_table["MAG_AUTO"][good] + zp
+        flux_auto_all = np.array(data_table["FLUX_AUTO"], dtype = float)
+        all_good_mags = -2.5 * np.log10(flux_auto_all / exptime)
+        calibrated_mag= all_good_mags + zp
+
 
         # keep RA/DEC in degrees on the full table for compatibility
         data_table["RA"] = ra
         data_table["DEC"] = dec
 
+        valid = np.isfinite(calibrated_mag)
+
         # build a compact table containing only sexagesimal RA (hh:mm:ss), DEC (dd:mm:ss), and calibrated magnitude
         coords = SkyCoord(ra * u.deg, dec * u.deg)
         ra_str = coords.ra.to_string(unit=u.hour, sep=":", pad=True, precision=2)
-        dec_str = coords.dec.to_string(unit=u.deg, sep=":", alwayssign=True, pad=True, precision=2)
+        dec_str = coords.dec.to_string(
+            unit=u.deg, sep=":", alwayssign=True, pad=True, precision=2
+        )
 
-        valid = np.isfinite(calibrated_mag)
 
         out_table = Table(
             [ra_str[valid], dec_str[valid], calibrated_mag[valid]],
             names=["RA", "DEC", f"MAG_CAL_{filter_string}"],
         )
 
-        out_path = os.path.join(self.reduced_dir, f"calibrated_SDSS_{object_name}_{filter_string}.fits")
+        out_path = os.path.join(
+            self.reduced_dir, f"calibrated_SDSS_{object_name}_{filter_string}.fits"
+        )
         out_table.write(out_path, overwrite=True)
 
         return 0
 
-
-
- 
-        
-    def query_PanSTARRS(self, catalog_path, frame_path, filter_string, filter_error_string, object_name="unknown_object"):
+    def query_PanSTARRS(
+        self,
+        catalog_path,
+        frame_path,
+        filter_string,
+        filter_error_string,
+        exptime,
+        object_name="unknown_object",
+    ):
         """
         Query Pan-STARRS via MAST Catalogs for PS1 photometry and compute zeropoint.
         Expects filter_string like 'gMeanPSFMag' and filter_error_string like 'gMeanPSFMagErr'
         Returns 0 on success, -1 on failure.
         """
-        from astroquery.mast import Catalogs
 
         # load SExtractor table and frame WCS
         try:
@@ -318,7 +366,9 @@ class Photometric_parser:
             return -1
 
         # pixel -> world
-        ra, dec = wcs.all_pix2world(data_table["XWIN_IMAGE"], data_table["YWIN_IMAGE"], 0)
+        ra, dec = wcs.all_pix2world(
+            data_table["XWIN_IMAGE"], data_table["YWIN_IMAGE"], 0
+        )
         source_coords = SkyCoord(ra * u.deg, dec * u.deg)
         center = SkyCoord(np.mean(ra) * u.deg, np.mean(dec) * u.deg)
         radius = 3 * u.arcmin
@@ -329,7 +379,9 @@ class Photometric_parser:
         cols = ["raMean", "decMean", mag_col, err_col]
 
         try:
-            res = Catalogs.query_region(center, radius=radius, catalog="Panstarrs", columns=cols)
+            res = Catalogs.query_region(
+                center, radius=radius, catalog="Panstarrs", columns=cols
+            )
         except Exception as e:
             self.logger.error(f"Pan-STARRS (MAST) query failed: {e}")
             return -1
@@ -344,13 +396,17 @@ class Photometric_parser:
             if "ra" in res.colnames and "dec" in res.colnames:
                 ra_key, dec_key = "ra", "dec"
             else:
-                self.logger.error(f"Pan-STARRS result missing RA/DEC columns: {res.colnames}")
+                self.logger.error(
+                    f"Pan-STARRS result missing RA/DEC columns: {res.colnames}"
+                )
                 return -1
         else:
             ra_key, dec_key = "raMean", "decMean"
 
         if mag_col not in res.colnames or err_col not in res.colnames:
-            self.logger.error(f"Pan-STARRS result missing requested mag columns: {mag_col}, {err_col}")
+            self.logger.error(
+                f"Pan-STARRS result missing requested mag columns: {mag_col}, {err_col}"
+            )
             return -1
 
         ps_ra = np.asarray(res[ra_key]).astype(float)
@@ -366,7 +422,9 @@ class Photometric_parser:
         good_sep = sep2d < max_sep
 
         # quality filters for Pan-STARRS: valid mag and reasonable error
-        good_ps = np.isfinite(ps_mag) & (ps_mag > -90) & np.isfinite(ps_err) & (ps_err < 0.5)
+        good_ps = (
+            np.isfinite(ps_mag) & (ps_mag > -90) & np.isfinite(ps_err) & (ps_err < 0.5)
+        )
 
         # SExtractor instrument sanity
         good_inst = np.isfinite(data_table["MAG_AUTO"])
@@ -376,19 +434,53 @@ class Photometric_parser:
 
         matched_sources = data_table[good]
         if len(matched_sources) == 0:
-            self.logger.error("No matched sources after applying quality cuts for Pan-STARRS (MAST).")
+            self.logger.error(
+                "No matched sources after applying quality cuts for Pan-STARRS (MAST)."
+            )
             return -1
 
         matched_panstarrs = res[idx[good]]
 
-        instrumental_mag = matched_sources["MAG_AUTO"]
+        # Apply SDSS-like quality filtering to the SExtractor table before using matches
+        # require FLAG==0 and exclude MAG_AUTO sentinel 99 and non-finite mags
+        if "FLAGS" in data_table.colnames:
+            flags = np.asarray(data_table["FLAGS"])
+            mask_flags = flags == 0
+        else:
+            mask_flags = np.ones(len(data_table), dtype=bool)
+
+        if "MAG_AUTO" in data_table.colnames:
+            mag_auto = np.asarray(data_table["MAG_AUTO"], dtype=float)
+            mask_mag = np.isfinite(mag_auto) & (mag_auto != 99) & (mag_auto != 99.0)
+        else:
+            mask_mag = np.zeros(len(data_table), dtype=bool)
+
+        good_inst = mask_flags & mask_mag
+
+        # combine all conditions (use Pan-STARRS quality already computed as good_ps)
+        good = good_sep & good_inst & good_ps[idx]
+
+        if not np.any(good):
+            self.logger.error(
+                "No matched sources after applying SDSS-like quality cuts for Pan-STARRS (MAST)."
+            )
+            return -1
+
+        matched_sources = data_table[good]
+        matched_panstarrs = res[idx[good]]
+
+        good_flux_auto = matched_sources["FLUX_AUTO"]
+
+        instrumental_mag = - 2.5 * np.log10(good_flux_auto / exptime)
         pan_mag = np.asarray(matched_panstarrs[mag_col])
 
         zp_values = pan_mag - instrumental_mag
         zp_values = zp_values[np.isfinite(zp_values)]
 
         if len(zp_values) == 0:
-            self.logger.error("No valid zeropoint values found after filtering (Pan-STARRS).")
+            self.logger.error(
+                "No valid zeropoint values found after filtering (Pan-STARRS)."
+            )
             return -1
 
         zp = np.median(zp_values)
@@ -424,7 +516,11 @@ class Photometric_parser:
             & (flux_vals > 0)
         )
         calibrated_mag = np.full(len(data_table), np.nan)
-        calibrated_mag[good_table] = data_table["MAG_AUTO"][good_table] + zp
+        all_flux_auto = data_table["FLUX_AUTO"][good_table]
+        all_good_mags = - 2.5 * np.log10(all_flux_auto / exptime)
+        calibrated_mag[good_table] = all_good_mags + zp
+
+        print(f"Calibrated magnitudes (first 10): {calibrated_mag[:10]}")
 
         # attach RA/DEC in degrees
         data_table["RA"] = ra
@@ -432,18 +528,21 @@ class Photometric_parser:
 
         coords = SkyCoord(ra * u.deg, dec * u.deg)
         ra_str = coords.ra.to_string(unit=u.hour, sep=":", pad=True, precision=2)
-        dec_str = coords.dec.to_string(unit=u.deg, sep=":", alwayssign=True, pad=True, precision=2)
+        dec_str = coords.dec.to_string(
+            unit=u.deg, sep=":", alwayssign=True, pad=True, precision=2
+        )
         valid = np.isfinite(calibrated_mag)
 
         out_table = Table(
             [ra_str[valid], dec_str[valid], calibrated_mag[valid]],
             names=["RA", "DEC", f"MAG_CAL_{mag_col}"],
         )
-        out_path = os.path.join(self.reduced_dir, f"calibrated_{object_name}_panstarrs_{filter_string}.fits")
+        out_path = os.path.join(
+            self.reduced_dir, f"calibrated_{object_name}_panstarrs_{filter_string}.fits"
+        )
         out_table.write(out_path, overwrite=True)
 
         return 0
-        
 
     def query_WISE():
         # TODO implement this to query WISE for photometric calibration
@@ -555,6 +654,11 @@ class ALFOSC_parser(Photometric_parser):
 
                 # first step - SExtractor on all frames
 
+                # this container is for exptimes - both to check that
+                # they are consistent, but also for later calculations
+
+                exptimes = []
+
                 for file in files:
 
                     file_path = os.path.join(
@@ -565,6 +669,11 @@ class ALFOSC_parser(Photometric_parser):
 
                     data = hdul[1].data
                     bpm = hdul[2].data
+
+                    # TODO fix for taking into acount header extensions
+                    # read exposure time from primary header robustly
+                    exptime = hdul[0].header["EXPTIME"]
+                    exptimes.append(exptime)
 
                     y_size, x_size = bpm.shape
                     x_start = int(x_size * self.mask_x_fraction)
@@ -640,8 +749,19 @@ class ALFOSC_parser(Photometric_parser):
 
                     self.run_scamp(scamp_cmd)
 
-                final_result_name = f"{object_name}.fits"
-                final_weights_filename = f"{object_name}_weights.fits"
+                final_result_name = f"{object_name}_{stripped_filter_name}.fits"
+                final_weights_filename = (
+                    f"{object_name}_{stripped_filter_name}_weights.fits"
+                )
+
+                # check all exposure times are the same
+                if not all(exptime == exptimes[0] for exptime in exptimes):
+                    self.logger.error(
+                        f"Exposure times are not consistent for {object_name} in {obj_key}. Check: {exptimes}"
+                    )
+                    exit(-1)
+                else:
+                    exptime = exptimes[0]
 
                 if stack:
                     # prepare the lists for stacking using SWarp
@@ -697,7 +817,6 @@ class ALFOSC_parser(Photometric_parser):
                     )
                     with fits.open(final_result_path) as hdul_final:
                         final_data = hdul_final[0].data
-
 
                     # we save the header to force the same transform on the bpm
 
@@ -759,7 +878,6 @@ class ALFOSC_parser(Photometric_parser):
                     bpm_data = np.where(weights_data == 0, 1, 0)
 
                     # now load the final result and plot for QA
-
 
                     masked_final = np.ma.masked_where(bpm_data == 1, final_data)
 
@@ -824,21 +942,47 @@ class ALFOSC_parser(Photometric_parser):
                         final_result_name,
                         self.filter_query_mapping_SDSS[stripped_filter_name][0],
                         self.filter_query_mapping_SDSS[stripped_filter_name][1],
+                        exptime,
                         object_name=object_name,
                     )
-                    
+
                     if query_result == 0:
-                        self.logger.info(f"Photometric calibration successful for {object_name} in {obj_key}.")
+                        self.logger.info(
+                            f"Photometric calibration successful for {object_name} in {obj_key}."
+                        )
                     else:
-                        self.logger.error(f"Photometric calibration failed for {object_name} in {obj_key} using SDSS.")
+                        self.logger.error(
+                            f"Photometric calibration failed for {object_name} in {obj_key} using SDSS."
+                        )
 
-                        self.logger.info(f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS.")
+                        self.logger.info(
+                            f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
+                        )
 
-                        if self.filter_query_mapping_PanSTARRS.get(stripped_filter_name) is not None:
-                            
-                            self.logger.info(f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS.")
+                        if (
+                            self.filter_query_mapping_PanSTARRS.get(
+                                stripped_filter_name
+                            )
+                            is not None
+                        ):
 
-                            self.query_PanSTARRS(final_cat_filename, final_result_name, self.filter_query_mapping_PanSTARRS[stripped_filter_name][0], self.filter_query_mapping_PanSTARRS[stripped_filter_name][1], object_name=object_name) 
+                            self.logger.info(
+                                f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
+                            )
+
+                            self.query_PanSTARRS(
+                                final_cat_filename,
+                                final_result_name,
+                                self.filter_query_mapping_PanSTARRS[
+                                    stripped_filter_name
+                                ][0],
+                                self.filter_query_mapping_PanSTARRS[
+                                    stripped_filter_name
+                                ][1],
+                                exptime,
+                                object_name=object_name,
+                            )
+
 
 class NOTCAM_parser(Photometric_parser):
 

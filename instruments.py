@@ -922,8 +922,6 @@ class Instrument:
         self, object_dict, output_path, logger, setup_key, show_plots=False
     ):
 
-
-
         for object_name, value in object_dict.items():
 
             logger.warning(
@@ -948,7 +946,9 @@ class Instrument:
                 vmin = np.nanpercentile(skysubbed_frame, 5)
                 vmax = np.nanpercentile(skysubbed_frame, 95)
                 plt.figure(figsize=(8, 6))
-                plt.imshow(skysubbed_frame, cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
+                plt.imshow(
+                    skysubbed_frame, cmap="gray", origin="lower", vmin=vmin, vmax=vmax
+                )
                 plt.colorbar()
                 plt.title(
                     f"Sky Subtracted (using frame median): {value['files'][0]}, median: {sky_subtracted_median:.2f}"
@@ -987,34 +987,34 @@ class Instrument:
                     },
                 )
 
-    def sky_subtract_AB(self, object_dict, output_path, logger, setup_key, show_plots=False):
+    def sky_subtract_AB(
+        self, object_dict, output_path, logger, setup_key, show_plots=False
+    ):
 
         # sanity check that only two files exists:
 
         for object_name, value in object_dict.items():
 
-            if len(value['files']) != 2 :
-                logger.error(f"{len(value['files'])} passed to AB subtraction - re-run the configuration to correct the setup.")
-                return 
-            
-        # this will always be two files so hard-coding is okay
-        file_A = value['files'][0]
-        file_B = value['files'][1]
+            if len(value["files"]) != 2:
+                logger.error(
+                    f"{len(value['files'])} passed to AB subtraction - re-run the configuration to correct the setup."
+                )
+                return
 
-        frame_A = read_frame(
-            output_path, f"reduced_science_{file_A}", self, logger
-        )
-        
-        frame_B = read_frame(
-            output_path, f"reduced_science_{file_B}", self, logger
-        )
+        # this will always be two files so hard-coding is okay
+        file_A = value["files"][0]
+        file_B = value["files"][1]
+
+        frame_A = read_frame(output_path, f"reduced_science_{file_A}", self, logger)
+
+        frame_B = read_frame(output_path, f"reduced_science_{file_B}", self, logger)
 
         frame_A_data = frame_A.data.data.copy()
         frame_A_hdul = frame_A.data.hdul.copy()
 
         frame_B_data = frame_B.data.data.copy()
         frame_B_hdul = frame_B.data.hdul.copy()
-        
+
         median_A = self.random_median_calc(frame_A_data)
         median_B = self.random_median_calc(frame_B_data)
 
@@ -1053,7 +1053,6 @@ class Instrument:
                 plt.show()
             plt.close()
 
-
             write_frame(
                 self,
                 hduls[i],
@@ -1077,8 +1076,7 @@ class Instrument:
                     ),
                 },
             )
-        
-                    
+
     def sky_subtract_sky_frame(
         self,
         object_dict,
@@ -1148,13 +1146,9 @@ class Instrument:
                 vmax=np.percentile(master_sky.data, 95),
             )
             plt.colorbar()
-            plt.title(
-                f"Master Sky Frame for object {object_name} in setup {setup_key}"
-            )
+            plt.title(f"Master Sky Frame for object {object_name} in setup {setup_key}")
             plt.savefig(
-                os.path.join(
-                    output_path, f"master_sky_{object_name}_{setup_key}.png"
-                )
+                os.path.join(output_path, f"master_sky_{object_name}_{setup_key}.png")
             )
             if show_plots:
                 plt.show()
@@ -1177,9 +1171,7 @@ class Instrument:
             hduls = []
             bpms = []
             for file in value["files"]:
-                frame = read_frame(
-                    output_path, f"reduced_science_{file}", self, logger
-                )
+                frame = read_frame(output_path, f"reduced_science_{file}", self, logger)
                 raw_file_stack.append(frame.data.data.copy())
                 hduls.append(frame.hdul.copy())
                 bpms.append(frame.bpm.copy())
@@ -1197,11 +1189,12 @@ class Instrument:
                     mask = np.asarray(bpms[i], dtype=bool)
                     sky_subtracted = np.ma.masked_array(sky_subtracted, mask=mask)
 
-
                 vmin = np.nanpercentile(frame, 5)
                 vmax = np.nanpercentile(frame, 95)
                 plt.figure(figsize=(8, 6))
-                plt.imshow(sky_subtracted, cmap="gray", origin="lower", vmin=vmin, vmax=vmax)
+                plt.imshow(
+                    sky_subtracted, cmap="gray", origin="lower", vmin=vmin, vmax=vmax
+                )
                 plt.colorbar()
                 plt.title(
                     f"Sky Subtracted: {value['files'][i]}, median: {sky_subtracted_median:.2f}"
@@ -1288,7 +1281,6 @@ class Instrument:
                         object_dict, output_path, logger, key, show_plots=show_plots
                     )
 
-
                 # sort the filenames to ensure consistency in other steps
 
                 files.sort()
@@ -1354,14 +1346,11 @@ class Instrument:
                         f"Two dithered frames found for object {object_name}. Will perform A-B subtraction."
                     )
 
-
-
                 # at this point regular dithering is the only option left
 
                 logger.info(
                     f"Performing sky subtraction for object {object_name} in setup {key} using dithering method."
                 )
-
 
                 self.sky_subtract_sky_frame(
                     object_dict,
@@ -1440,13 +1429,13 @@ class ALFOSC(Instrument):
             output_dir,
             flat_setup,
             logger,
-            bad_pixel_masks = bad_pixel_masks,
-            dark_frames = dark_frames,
-            bias_frames = bias_frames,
-            science_to_bias_map = science_to_bias_map,
-            show_plots = show_plots,
-            skip_dark_correction = skip_dark_correction,
-            skip_bias_correction = skip_bias_correction,
+            bad_pixel_masks=bad_pixel_masks,
+            dark_frames=dark_frames,
+            bias_frames=bias_frames,
+            science_to_bias_map=science_to_bias_map,
+            show_plots=show_plots,
+            skip_dark_correction=skip_dark_correction,
+            skip_bias_correction=skip_bias_correction,
         )
 
     def reduce_science_frames(
