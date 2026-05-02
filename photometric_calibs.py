@@ -763,7 +763,10 @@ class ALFOSC_parser(Photometric_parser):
                 else:
                     exptime = exptimes[0]
 
-                if stack:
+                # TODO: for now just testing if warping a single image makes sense for easier code logic
+
+                if True:
+                    #if stack:
                     # prepare the lists for stacking using SWarp
 
                     file_list_name = os.path.join(
@@ -903,85 +906,74 @@ class ALFOSC_parser(Photometric_parser):
                     else:
                         plt.close()
 
-                    # now run the SExtractor on the final stack
 
-                    final_cat_filename = os.path.join(
-                        self.reduced_dir, final_result_name.replace(".fits", ".cat")
+
+                # now run the SExtractor on the final stack
+                final_cat_filename = os.path.join(
+                    self.reduced_dir, final_result_name.replace(".fits", ".cat")
+                )
+                # TODO later disable bacground sub when using already subtracted images
+                cmd = [
+                    "sex",
+                    "-c",
+                    self.sex_config,
+                    final_result_name,
+                    "-PARAMETERS_NAME",
+                    self.sex_param,
+                    "-WEIGHT_TYPE",
+                    "MAP_WEIGHT",
+                    "-WEIGHT_IMAGE",
+                    final_weights_filename,
+                    "-CATALOG_NAME",
+                    final_cat_filename,
+                    "-VERBOSE_TYPE",
+                    "FULL",
+                ]
+                self.run_sex(cmd)
+                with fits.open(final_cat_filename) as hdul_table:
+                    data_table = hdul_table[2].data
+                good_objects = data_table[data_table["FLAGS"] == 0]
+                self.plot_apertures(masked_final, good_objects, file)
+                query_result = self.query_SDSS(
+                    final_cat_filename,
+                    final_result_name,
+                    self.filter_query_mapping_SDSS[stripped_filter_name][0],
+                    self.filter_query_mapping_SDSS[stripped_filter_name][1],
+                    exptime,
+                    object_name=object_name,
+                )
+                if query_result == 0:
+                    self.logger.info(
+                        f"Photometric calibration successful for {object_name} in {obj_key}."
                     )
-
-                    # TODO later disable bacground sub when using already subtracted images
-
-                    cmd = [
-                        "sex",
-                        "-c",
-                        self.sex_config,
-                        final_result_name,
-                        "-PARAMETERS_NAME",
-                        self.sex_param,
-                        "-WEIGHT_TYPE",
-                        "MAP_WEIGHT",
-                        "-WEIGHT_IMAGE",
-                        final_weights_filename,
-                        "-CATALOG_NAME",
-                        final_cat_filename,
-                        "-VERBOSE_TYPE",
-                        "FULL",
-                    ]
-
-                    self.run_sex(cmd)
-
-                    with fits.open(final_cat_filename) as hdul_table:
-                        data_table = hdul_table[2].data
-
-                    good_objects = data_table[data_table["FLAGS"] == 0]
-
-                    self.plot_apertures(masked_final, good_objects, file)
-
-                    query_result = self.query_SDSS(
-                        final_cat_filename,
-                        final_result_name,
-                        self.filter_query_mapping_SDSS[stripped_filter_name][0],
-                        self.filter_query_mapping_SDSS[stripped_filter_name][1],
-                        exptime,
-                        object_name=object_name,
+                else:
+                    self.logger.error(
+                        f"Photometric calibration failed for {object_name} in {obj_key} using SDSS."
                     )
-
-                    if query_result == 0:
-                        self.logger.info(
-                            f"Photometric calibration successful for {object_name} in {obj_key}."
+                    self.logger.info(
+                        f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
+                    )
+                    if (
+                        self.filter_query_mapping_PanSTARRS.get(
+                            stripped_filter_name
                         )
-                    else:
-                        self.logger.error(
-                            f"Photometric calibration failed for {object_name} in {obj_key} using SDSS."
-                        )
-
+                        is not None
+                    ):
                         self.logger.info(
                             f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
                         )
-
-                        if (
-                            self.filter_query_mapping_PanSTARRS.get(
+                        self.query_PanSTARRS(
+                            final_cat_filename,
+                            final_result_name,
+                            self.filter_query_mapping_PanSTARRS[
                                 stripped_filter_name
-                            )
-                            is not None
-                        ):
-
-                            self.logger.info(
-                                f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
-                            )
-
-                            self.query_PanSTARRS(
-                                final_cat_filename,
-                                final_result_name,
-                                self.filter_query_mapping_PanSTARRS[
-                                    stripped_filter_name
-                                ][0],
-                                self.filter_query_mapping_PanSTARRS[
-                                    stripped_filter_name
-                                ][1],
-                                exptime,
-                                object_name=object_name,
-                            )
+                            ][0],
+                            self.filter_query_mapping_PanSTARRS[
+                                stripped_filter_name
+                            ][1],
+                            exptime,
+                            object_name=object_name,
+                        )
 
 
 class NOTCAM_parser(Photometric_parser):
