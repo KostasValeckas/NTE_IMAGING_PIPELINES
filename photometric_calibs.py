@@ -27,9 +27,6 @@ class Photometric_parser:
         self.object_setup = object_setup
         self.show_plots = show_plots
 
-    def run(self):
-        # dummy for inheritance
-        pass
 
     def determine_configurations(self):
         # TODO might not need this - keep for API
@@ -560,35 +557,9 @@ class Photometric_parser:
         # TODO implement this to query HST for photometric calibration
         pass
 
-
-class ALFOSC_parser(Photometric_parser):
-
-    def __init__(self, reduced_dir, logger, object_setup, show_plots=False):
-
-        # TODO make a global directory for these
-        self.sex_config = os.path.normpath(os.path.join(reduced_dir, "default.sex"))
-        self.sex_param = os.path.normpath(os.path.join(reduced_dir, "run1.param"))
-
-        # TODO expland with more filters as needed
-        self.filter_query_mapping_SDSS = {
-            "u'": ["psfMag_u", "psfMagErr_u"],
-            "g'": ["psfMag_g", "psfMagErr_g"],
-            "r'": ["psfMag_r", "psfMagErr_r"],
-            "i'": ["psfMag_i", "psfMagErr_i"],
-            "z'": ["psfMag_z", "psfMagErr_z"],
-        }
-
-        self.filter_query_mapping_PanSTARRS = {
-            "g'": ["gMeanPSFMag", "gMeanPSFMagErr"],
-            "r'": ["rMeanPSFMag", "rMeanPSFMagErr"],
-            "i'": ["iMeanPSFMag", "iMeanPSFMagErr"],
-            "z'": ["zMeanPSFMag", "zMeanPSFMagErr"],
-        }
-
-        self.mask_x_fraction = 0.1
-        self.mask_y_fraction = 0.1
-
-        super().__init__(reduced_dir, logger, object_setup, show_plots=show_plots)
+    def calculate_photometry(self, obj_key, object_name):
+        # This is to be overridden by the different instruments
+        pass
 
     def run(self):
 
@@ -620,9 +591,9 @@ class ALFOSC_parser(Photometric_parser):
                     f"Processing {object_name} in {obj_key} with filter {filters[0]}"
                 )
 
-                stripped_filter_name = filters[0].split("_", 1)[0].strip()
+                self.stripped_filter_name = filters[0].split("_", 1)[0].strip()
 
-                if stripped_filter_name not in self.filter_query_mapping_SDSS.keys():
+                if self.stripped_filter_name not in self.filter_query_mapping_SDSS.keys():
                     self.logger.error(
                         f"Filter {filters[0]} not implemented. Skipping..."
                     )
@@ -749,9 +720,9 @@ class ALFOSC_parser(Photometric_parser):
 
                     self.run_scamp(scamp_cmd)
 
-                final_result_name = f"{object_name}_{stripped_filter_name}.fits"
+                self.final_result_name = f"{object_name}_{self.stripped_filter_name}.fits"
                 final_weights_filename = (
-                    f"{object_name}_{stripped_filter_name}_weights.fits"
+                    f"{object_name}_{self.stripped_filter_name}_weights.fits"
                 )
 
                 # check all exposure times are the same
@@ -761,7 +732,7 @@ class ALFOSC_parser(Photometric_parser):
                     )
                     exit(-1)
                 else:
-                    exptime = exptimes[0]
+                    self.exptime = exptimes[0]
 
                 # TODO: for now just testing if warping a single image makes sense for easier code logic
 
@@ -796,7 +767,7 @@ class ALFOSC_parser(Photometric_parser):
                         "-c",
                         "default.swarp",
                         "-IMAGEOUT_NAME",
-                        final_result_name,
+                        self.final_result_name,
                         "-COMBINE_TYPE",
                         "MEDIAN",
                         "-WEIGHT_IMAGE",
@@ -816,18 +787,19 @@ class ALFOSC_parser(Photometric_parser):
                     self.run_swarp(swarp_cmd)
 
                     final_result_path = os.path.join(
-                        self.reduced_dir, final_result_name
+                        self.reduced_dir, self.final_result_name
                     )
+
                     with fits.open(final_result_path) as hdul_final:
                         final_data = hdul_final[0].data
 
                     # we save the header to force the same transform on the bpm
 
                     hdr = fits.getheader(
-                        os.path.join(self.reduced_dir, final_result_name), ext=0
+                        os.path.join(self.reduced_dir, self.final_result_name), ext=0
                     )
                     fits.writeto(
-                        final_result_name.replace(".fits", ".head"),
+                        self.final_result_name.replace(".fits", ".head"),
                         data=None,
                         header=hdr,
                         overwrite=True,
@@ -847,7 +819,7 @@ class ALFOSC_parser(Photometric_parser):
                         f"{x},{y}",
                         # lock geometry to science stack
                         "-HEADER_NAME",
-                        final_result_name.replace(".fits", ".head"),
+                        self.final_result_name.replace(".fits", ".head"),
                         # mask-safe settings
                         "-RESAMPLING_TYPE",
                         "NEAREST",
@@ -909,15 +881,15 @@ class ALFOSC_parser(Photometric_parser):
 
 
                 # now run the SExtractor on the final stack
-                final_cat_filename = os.path.join(
-                    self.reduced_dir, final_result_name.replace(".fits", ".cat")
+                self.final_cat_filename = os.path.join(
+                    self.reduced_dir, self.final_result_name.replace(".fits", ".cat")
                 )
                 # TODO later disable bacground sub when using already subtracted images
                 cmd = [
                     "sex",
                     "-c",
                     self.sex_config,
-                    final_result_name,
+                    self.final_result_name,
                     "-PARAMETERS_NAME",
                     self.sex_param,
                     "-WEIGHT_TYPE",
@@ -925,55 +897,96 @@ class ALFOSC_parser(Photometric_parser):
                     "-WEIGHT_IMAGE",
                     final_weights_filename,
                     "-CATALOG_NAME",
-                    final_cat_filename,
+                    self.final_cat_filename,
                     "-VERBOSE_TYPE",
                     "FULL",
                 ]
+                
                 self.run_sex(cmd)
-                with fits.open(final_cat_filename) as hdul_table:
+
+                with fits.open(self.final_cat_filename) as hdul_table:
                     data_table = hdul_table[2].data
+
                 good_objects = data_table[data_table["FLAGS"] == 0]
+
                 self.plot_apertures(masked_final, good_objects, file)
-                query_result = self.query_SDSS(
-                    final_cat_filename,
-                    final_result_name,
-                    self.filter_query_mapping_SDSS[stripped_filter_name][0],
-                    self.filter_query_mapping_SDSS[stripped_filter_name][1],
-                    exptime,
+
+                self.calculate_photometry(obj_key, object_name)     
+
+
+class ALFOSC_parser(Photometric_parser):
+
+    def __init__(self, reduced_dir, logger, object_setup, show_plots=False):
+
+        # TODO make a global directory for these
+        self.sex_config = os.path.normpath(os.path.join(reduced_dir, "default.sex"))
+        self.sex_param = os.path.normpath(os.path.join(reduced_dir, "run1.param"))
+
+        # TODO expland with more filters as needed
+        self.filter_query_mapping_SDSS = {
+            "u'": ["psfMag_u", "psfMagErr_u"],
+            "g'": ["psfMag_g", "psfMagErr_g"],
+            "r'": ["psfMag_r", "psfMagErr_r"],
+            "i'": ["psfMag_i", "psfMagErr_i"],
+            "z'": ["psfMag_z", "psfMagErr_z"],
+        }
+
+        self.filter_query_mapping_PanSTARRS = {
+            "g'": ["gMeanPSFMag", "gMeanPSFMagErr"],
+            "r'": ["rMeanPSFMag", "rMeanPSFMagErr"],
+            "i'": ["iMeanPSFMag", "iMeanPSFMagErr"],
+            "z'": ["zMeanPSFMag", "zMeanPSFMagErr"],
+        }
+
+        self.mask_x_fraction = 0.1
+        self.mask_y_fraction = 0.1
+
+        super().__init__(reduced_dir, logger, object_setup, show_plots=show_plots)
+
+
+    def calculate_photometry(self, obj_key, object_name):
+
+        
+        query_result = self.query_SDSS(
+            self.final_cat_filename,
+            self.final_result_name,
+            self.filter_query_mapping_SDSS[self.stripped_filter_name][0],
+            self.filter_query_mapping_SDSS[self.stripped_filter_name][1],
+            self.exptime,
+            object_name=object_name,
+        )
+        if query_result == 0:
+            self.logger.info(
+                f"Photometric calibration successful for {object_name} in {obj_key}."
+            )
+        else:
+            self.logger.error(
+                f"Photometric calibration failed for {object_name} in {obj_key} using SDSS."
+            )
+            self.logger.info(
+                f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
+            )
+            if (
+                self.filter_query_mapping_PanSTARRS.get(
+                    self.stripped_filter_name
+                )
+                is not None
+            ):
+                self.logger.info(
+                    f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
+                )
+                self.query_PanSTARRS(
+                    self.final_cat_filename,
+                    self.final_result_name,
+                    self.filter_query_mapping_PanSTARRS[
+                        self.stripped_filter_name
+                    ][0],
+                    self.filter_query_mapping_PanSTARRS[
+                        self.stripped_filter_name
+                    ][1],
+                    self.exptime,
                     object_name=object_name,
                 )
-                if query_result == 0:
-                    self.logger.info(
-                        f"Photometric calibration successful for {object_name} in {obj_key}."
-                    )
-                else:
-                    self.logger.error(
-                        f"Photometric calibration failed for {object_name} in {obj_key} using SDSS."
-                    )
-                    self.logger.info(
-                        f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
-                    )
-                    if (
-                        self.filter_query_mapping_PanSTARRS.get(
-                            stripped_filter_name
-                        )
-                        is not None
-                    ):
-                        self.logger.info(
-                            f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
-                        )
-                        self.query_PanSTARRS(
-                            final_cat_filename,
-                            final_result_name,
-                            self.filter_query_mapping_PanSTARRS[
-                                stripped_filter_name
-                            ][0],
-                            self.filter_query_mapping_PanSTARRS[
-                                stripped_filter_name
-                            ][1],
-                            exptime,
-                            object_name=object_name,
-                        )
 
 
 class NOTCAM_parser(Photometric_parser):
