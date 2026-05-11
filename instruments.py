@@ -1094,8 +1094,11 @@ class Instrument:
             # build the sky-stack from either sky or science frames
 
             sky_frame_list = value["sky_frames"] if skyframes else value["files"]
+            
+            # used for later writing
+            hdul_copy = None
 
-            for sky_frame in sky_frame_list:
+            for i, sky_frame in enumerate(sky_frame_list):
 
                 frame = read_frame(
                     output_path, f"reduced_science_{sky_frame}", self, logger
@@ -1125,7 +1128,7 @@ class Instrument:
 
                 # take a copy of the middle hdul for writing master
                 # sky frame to disc
-                if len(sky_cube) // 2 == len(value["sky_frames"]):
+                if len(sky_cube) // 2 == i:
                     hdul_copy = frame.hdul.copy()
 
                 # now median-stack all sky frames
@@ -1189,8 +1192,8 @@ class Instrument:
                     mask = np.asarray(bpms[i], dtype=bool)
                     sky_subtracted = np.ma.masked_array(sky_subtracted, mask=mask)
 
-                vmin = np.nanpercentile(frame, 5)
-                vmax = np.nanpercentile(frame, 95)
+                vmin = np.nanpercentile(sky_subtracted, 5)
+                vmax = np.nanpercentile(sky_subtracted, 95)
                 plt.figure(figsize=(8, 6))
                 plt.imshow(
                     sky_subtracted, cmap="gray", origin="lower", vmin=vmin, vmax=vmax
@@ -1250,7 +1253,8 @@ class Instrument:
                     f"No object setup found at {object_setup_path}. Cannot perform sky subtraction without object setup."
                 )
                 logger.error("Run the reduction first")
-                return
+                
+                return object_setup
 
         for key, object_dict in object_setup.items():
 
@@ -1272,6 +1276,8 @@ class Instrument:
                         skyframes=True,
                     )
 
+                    return object_setup
+
                 files = object_value["files"]
 
                 # if only one frame exists, use median subtraction
@@ -1280,6 +1286,8 @@ class Instrument:
                     self.sky_subtract_median(
                         object_dict, output_path, logger, key, show_plots=show_plots
                     )
+
+                    return object_setup
 
                 # sort the filenames to ensure consistency in other steps
 
@@ -1341,10 +1349,18 @@ class Instrument:
                         object_dict, output_path, logger, key, show_plots=show_plots
                     )
 
+                    return object_setup
+
                 if len(files) == 2:
                     logger.info(
                         f"Two dithered frames found for object {object_name}. Will perform A-B subtraction."
                     )
+
+                    self.sky_subtract_AB(
+                        object_dict, output_path, logger, key, show_plots=show_plots
+                    )
+
+                    return object_setup
 
                 # at this point regular dithering is the only option left
 
@@ -1360,6 +1376,8 @@ class Instrument:
                     show_plots=show_plots,
                     skyframes=False,
                 )
+
+                return object_setup
 
 
 class ALFOSC(Instrument):
@@ -1388,6 +1406,7 @@ class ALFOSC(Instrument):
             flat_keyword=["FLAT,SKY"],
             science_keyword=["OBJECT"],
             object_keyword=("OBJECT", 0),
+            exposure_time_keyword=("EXPTIME", 0),
             RA_keyword=("RA", 0),
             DEC_keyword=("DEC", 0),
         )
@@ -1488,7 +1507,7 @@ class NOTCAM(Instrument):
             name="NOTCAM",
             detector=notcam_swir3,
             data_hdu_extension=1,
-            filter_keyword=(["NCFLTNM1", "NCFLTNM2"], 0),
+            filter_keyword=(["FILT1", "FILT2"], 0),
             obsmode_keyword=("OBS_MODE", 0),
             imaging_obsmode_keyword=("IMAGING", 0),
             imagetype_keyword=("IMAGETYP", 0),
@@ -1526,13 +1545,15 @@ class NOTCAM(Instrument):
         if ("dark" in hdul[0].header["OBJECT"]) or ("dfra" in hdul[0].header["OBJECT"]):
             return ImageType.DARK
 
+        print(hdul[0].header["IMAGETYP"])
+
         if (
             (
-                ("OBJECT" in hdul[0].header["IMAGETYP"])
+                ('OBJECT' in hdul[0].header["IMAGETYP"])
                 or ("SKY" in hdul[0].header["IMAGETYP"])
             )
-            and (hdul[0].header["IMAGECAT"] == "SCIENCE")
-            and (hdul[0].header["NCGRNM"] == "Open")
+            #and (hdul[0].header["IMAGECAT"] == "SCIENCE")
+            #and (hdul[0].header["NCGRNM"] == "Open")
         ):
             return ImageType.SCIENCE
 
@@ -1814,7 +1835,7 @@ class NOTCAM(Instrument):
             skip_flats=False,
         )
 
-    def subtract_sky_dither(
+    def subtract_sky(
         self, output_path, logger, object_setup=None, show_plots=False
     ):
         # load the object setup from disk if not provided
@@ -1891,6 +1912,12 @@ class NOTCAM(Instrument):
                                 )
                                 object_setup[key][object]["sky_frames"].append(file)
 
-        return super().subtract_sky_dither(
+        #remove the entry for objectname = sky from the object setup:
+        for key in object_setup:
+            if "sky" in object_setup[key]:
+                del object_setup[key]["sky"]
+        
+
+        return super().subtract_sky(
             output_path, logger, object_setup=object_setup, show_plots=show_plots
         )

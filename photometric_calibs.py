@@ -17,16 +17,18 @@ from astroquery.vizier import Vizier
 from astroquery.vizier import Vizier as _Vizier
 from astroquery.mast import Catalogs
 
+from IO import open_fits_file, get_header_value
+
 
 class Photometric_parser:
 
-    def __init__(self, reduced_dir, logger, object_setup, show_plots=False):
+    def __init__(self, reduced_dir, logger, object_setup, instrument, show_plots=False):
 
         self.reduced_dir = reduced_dir
         self.logger = logger
         self.object_setup = object_setup
         self.show_plots = show_plots
-
+        self.instrument = instrument
 
     def determine_configurations(self):
         # TODO might not need this - keep for API
@@ -255,12 +257,15 @@ class Photometric_parser:
 
         good_flux_auto = data_table["FLUX_AUTO"][good]
 
-
         matched_sdss = sdss[idx[good]]
 
         # instrumental_mag = matched_sources["MAG_AUTO"]
 
-        instrumental_mag = -2.5 * np.log10(good_flux_auto / exptime)
+        R = data_table["FLUX_AUTO"][good] / exptime
+
+        instrumental_mag = -2.5 * np.log10(R)
+
+
 
         sdss_mag = matched_sdss[filter_string]
 
@@ -278,7 +283,9 @@ class Photometric_parser:
 
         zp = np.median(zp_values)
 
-        self.logger.info(f"Median Zeropoint: {zp}")
+        zp_sigma = np.std(zp_values) / np.sqrt(len(zp_values)) if len(zp_values) > 1 else 0.0
+
+        self.logger.info(f"Median Zeropoint: {zp} ± {zp_sigma:.3f} (std error of the mean)")
 
         plt.hist(zp_values, bins=len(zp_values), color="C0", alpha=0.8)
         plt.axvline(zp, color="C1", linestyle="--", label=f"median = {zp:.3f}")
@@ -305,10 +312,12 @@ class Photometric_parser:
 
         # apply zeropoint to create calibrated magnitude array
         calibrated_mag = np.full(len(data_table), np.nan)
-        flux_auto_all = np.array(data_table["FLUX_AUTO"], dtype = float)
-        all_good_mags = -2.5 * np.log10(flux_auto_all / exptime)
-        calibrated_mag= all_good_mags + zp
-
+        flux_auto_all = np.array(data_table["FLUX_AUTO"], dtype=float)
+        flux_auto_err_all = np.array(data_table["FLUXERR_AUTO"], dtype=float)
+        R_all = flux_auto_all / exptime
+        all_good_mags = -2.5 * np.log10(R_all)
+        calibrated_mag = all_good_mags + zp
+        calibrated_mag_error = np.sqrt(((-2.5 * (flux_auto_err_all/exptime))/(R_all * np.log(10)))**2 + zp_sigma**2)
 
         # keep RA/DEC in degrees on the full table for compatibility
         data_table["RA"] = ra
@@ -323,10 +332,9 @@ class Photometric_parser:
             unit=u.deg, sep=":", alwayssign=True, pad=True, precision=2
         )
 
-
         out_table = Table(
-            [ra_str[valid], dec_str[valid], calibrated_mag[valid]],
-            names=["RA", "DEC", f"MAG_CAL_{filter_string}"],
+            [ra_str[valid], dec_str[valid], calibrated_mag[valid], calibrated_mag_error[valid]],
+            names=["RA", "DEC", f"MAG_CAL_{filter_string}", f"MAG_CAL_ERR_{filter_string}"],
         )
 
         out_path = os.path.join(
@@ -468,7 +476,7 @@ class Photometric_parser:
 
         good_flux_auto = matched_sources["FLUX_AUTO"]
 
-        instrumental_mag = - 2.5 * np.log10(good_flux_auto / exptime)
+        instrumental_mag = -2.5 * np.log10(good_flux_auto / exptime)
         pan_mag = np.asarray(matched_panstarrs[mag_col])
 
         zp_values = pan_mag - instrumental_mag
@@ -481,8 +489,9 @@ class Photometric_parser:
             return -1
 
         zp = np.median(zp_values)
+        zp_sigma = np.std(zp_values) / np.sqrt(len(zp_values)) if len(zp_values) > 1 else 0.0
         self.logger.info(f"Pan-STARRS Zeropoint values: {zp_values}")
-        self.logger.info(f"Pan-STARRS Median Zeropoint: {zp:.3f}")
+        self.logger.info(f"Pan-STARRS Median Zeropoint: {zp:.3f} ± {zp_sigma:.3f} (std error of the mean)")
 
         # plot histogram for QA
         plt.hist(zp_values, bins=max(6, min(50, len(zp_values))), color="C0", alpha=0.8)
@@ -513,9 +522,12 @@ class Photometric_parser:
             & (flux_vals > 0)
         )
         calibrated_mag = np.full(len(data_table), np.nan)
+        calibrated_mag_error = np.full(len(data_table), np.nan)
         all_flux_auto = data_table["FLUX_AUTO"][good_table]
-        all_good_mags = - 2.5 * np.log10(all_flux_auto / exptime)
+        all_flux_auto_err = data_table["FLUXERR_AUTO"][good_table]
+        all_good_mags = -2.5 * np.log10(all_flux_auto / exptime)
         calibrated_mag[good_table] = all_good_mags + zp
+        calibrated_mag_error[good_table] = np.sqrt(((-2.5 * (all_flux_auto_err/exptime))/((all_flux_auto/exptime) * np.log(10)))**2 + zp_sigma**2)
 
         print(f"Calibrated magnitudes (first 10): {calibrated_mag[:10]}")
 
@@ -531,8 +543,8 @@ class Photometric_parser:
         valid = np.isfinite(calibrated_mag)
 
         out_table = Table(
-            [ra_str[valid], dec_str[valid], calibrated_mag[valid]],
-            names=["RA", "DEC", f"MAG_CAL_{mag_col}"],
+            [ra_str[valid], dec_str[valid], calibrated_mag[valid], calibrated_mag_error[valid]],
+            names=["RA", "DEC", f"MAG_CAL_{mag_col}", f"MAG_CAL_ERR_{mag_col}"],
         )
         out_path = os.path.join(
             self.reduced_dir, f"calibrated_{object_name}_panstarrs_{filter_string}.fits"
@@ -545,9 +557,289 @@ class Photometric_parser:
         # TODO implement this to query WISE for photometric calibration
         pass
 
-    def query_2MASS():
-        # TODO implement this to query 2MASS for photometric calibration
-        pass
+    def query_2MASS(
+        self,
+        catalog_path,
+        frame_path,
+        filter_string,
+        filter_error_string,
+        exptime,
+        object_name="unknown_object",
+    ):
+        """
+        Query 2MASS via Vizier (II/246/out) for J/H/Ks photometry and compute zeropoint.
+        Expects filter_string like 'Jmag' and filter_error_string like 'e_Jmag'.
+        Returns 0 on success, -1 on failure.
+        """
+        # load SExtractor table and frame WCS
+        try:
+            with fits.open(os.path.join(self.reduced_dir, catalog_path)) as hdul:
+                data_table = Table(hdul[2].data)
+            with fits.open(os.path.join(self.reduced_dir, frame_path)) as hdul:
+                hdu = hdul[0]
+                wcs = WCS(hdu.header)
+        except Exception as e:
+            self.logger.error(f"Failed to open catalog/frame: {e}")
+            return -1
+
+        # pixel -> world
+
+        ra, dec = wcs.all_pix2world(
+            data_table["XWIN_IMAGE"], data_table["YWIN_IMAGE"], 0
+        )
+
+        source_coords = SkyCoord(ra * u.deg, dec * u.deg)
+
+        center = SkyCoord(np.mean(ra) * u.deg, np.mean(dec) * u.deg)
+
+        radius = 3 * u.arcmin
+
+        # prepare Vizier query
+
+        cols = ["RAJ2000", "DEJ2000", filter_string, filter_error_string]
+
+        v = Vizier(columns=cols, row_limit=-1)
+
+        try:
+
+            res = v.query_region(center, radius=radius, catalog=["II/246/out"])
+
+        except Exception as e:
+
+            self.logger.error(f"2MASS (Vizier) query failed: {e}")
+
+            return -1
+
+        if not res or len(res) == 0:
+
+            self.logger.error(
+                "No 2MASS sources found in the field (Vizier II/246/out)."
+            )
+
+            return -1
+
+        # Vizier may return a list of tables, take the first
+
+        tbl = res[0]
+
+        # flexible column handling
+
+        colmap = {c.lower(): c for c in tbl.colnames}
+
+        # RA/DEC keys in II/246 are 'RAJ2000' and 'DEJ2000' but allow fallbacks
+
+        if "raj2000" in colmap and "dej2000" in colmap:
+
+            ra_key, dec_key = colmap["raj2000"], colmap["dej2000"]
+
+        elif "ra" in colmap and "dec" in colmap:
+
+            ra_key, dec_key = colmap["ra"], colmap["dec"]
+
+        else:
+
+            self.logger.error(f"2MASS result missing RA/DEC columns: {tbl.colnames}")
+
+            return -1
+
+        # ensure requested mag columns exist
+
+        if (
+            filter_string.lower() not in colmap
+            or filter_error_string.lower() not in colmap
+        ):
+
+            self.logger.error(
+                f"2MASS result missing requested mag columns: {filter_string}, {filter_error_string}"
+            )
+
+            return -1
+
+        mag_key = colmap[filter_string.lower()]
+
+        err_key = colmap[filter_error_string.lower()]
+
+        tm_ra = np.asarray(tbl[ra_key]).astype(float)
+
+        tm_dec = np.asarray(tbl[dec_key]).astype(float)
+
+        tm_mag = np.asarray(tbl[mag_key])
+
+        tm_err = np.asarray(tbl[err_key])
+
+        tm_coords = SkyCoord(tm_ra * u.deg, tm_dec * u.deg)
+
+        # match sources
+
+        idx, sep2d, _ = source_coords.match_to_catalog_sky(tm_coords)
+
+        max_sep = 1.0 * u.arcsec
+
+        good_sep = sep2d < max_sep
+
+        # quality filters for 2MASS: valid mag and reasonable error
+
+        good_tm = (
+            np.isfinite(tm_mag) & (tm_mag > -90) & np.isfinite(tm_err) & (tm_err < 0.5)
+        )
+
+        # SExtractor instrument sanity (similar to other methods)
+
+        if "FLAGS" in data_table.colnames:
+
+            flags = np.asarray(data_table["FLAGS"])
+
+            mask_flags = flags == 0
+
+        else:
+
+            mask_flags = np.ones(len(data_table), dtype=bool)
+
+        if "MAG_AUTO" in data_table.colnames:
+
+            mag_auto = np.asarray(data_table["MAG_AUTO"], dtype=float)
+
+            mask_mag = np.isfinite(mag_auto) & (mag_auto != 99) & (mag_auto != 99.0)
+
+        else:
+
+            mask_mag = np.zeros(len(data_table), dtype=bool)
+
+        good_inst = mask_flags & mask_mag
+
+        # combine masks (index into 2MASS via idx)
+
+        good = good_sep & good_inst & good_tm[idx]
+
+        if not np.any(good):
+
+            self.logger.error(
+                "No matched sources after applying quality cuts for 2MASS."
+            )
+
+            return -1
+
+        matched_sources = data_table[good]
+
+        matched_2mass = tbl[idx[good]]
+
+        good_flux_auto = matched_sources["FLUX_AUTO"]
+
+        # compute instrumental magnitudes and zeropoints
+
+        instrumental_mag = -2.5 * np.log10(good_flux_auto / exptime)
+
+        tm_mag_matched = np.asarray(matched_2mass[mag_key])
+
+        zp_values = tm_mag_matched - instrumental_mag
+
+        zp_values = zp_values[np.isfinite(zp_values)]
+
+        if len(zp_values) == 0:
+
+            self.logger.error(
+                "No valid zeropoint values found after filtering (2MASS)."
+            )
+
+            return -1
+
+        zp = np.median(zp_values)
+
+        zp_sigma = np.std(zp_values) / np.sqrt(len(zp_values)) if len(zp_values) > 1 else 0.0
+
+        self.logger.info(f"2MASS Zeropoint values: {zp_values}")
+
+        self.logger.info(f"2MASS Median Zeropoint: {zp:.3f} ± {zp_sigma:.3f} (std error of the mean)")
+
+        # QA plot
+
+        plt.hist(zp_values, bins=max(6, min(50, len(zp_values))), color="C0", alpha=0.8)
+
+        plt.axvline(zp, color="C1", linestyle="--", label=f"median = {zp:.3f}")
+
+        plt.xlabel("Zeropoint (mag)")
+
+        plt.ylabel("Number of sources")
+
+        plt.title(f"2MASS Zeropoint distribution (median = {zp:.3f})")
+
+        plt.legend()
+
+        plt.grid(True, ls=":", alpha=0.6)
+
+        plt.tight_layout()
+
+        if self.show_plots:
+
+            plt.show()
+
+        else:
+
+            plt.close()
+
+        # write zeropoint to the main table and produce calibrated magnitudes
+
+        data_table[f"ZP_{filter_string}"] = np.nan
+
+        if "FLUX_AUTO" in data_table.colnames:
+
+            flux_vals = np.asarray(data_table["FLUX_AUTO"], dtype=float)
+
+        else:
+
+            flux_vals = np.full(len(data_table), np.nan)
+
+        good_table = (
+            np.isfinite(data_table["MAG_AUTO"])
+            & np.isfinite(flux_vals)
+            & (flux_vals > 0)
+        )
+
+        calibrated_mag = np.full(len(data_table), np.nan)
+
+        calibrated_mag_error = np.full(len(data_table), np.nan)
+
+        all_flux_auto = data_table["FLUX_AUTO"][good_table]
+
+        all_flux_auto_err = data_table["FLUXERR_AUTO"][good_table]
+
+        all_good_mags = -2.5 * np.log10(all_flux_auto / exptime)
+
+
+
+
+
+        calibrated_mag[good_table] = all_good_mags + zp
+        calibrated_mag_error[good_table] = np.sqrt(((-2.5 * (all_flux_auto_err/exptime))/((all_flux_auto/exptime) * np.log(10)))**2 + zp_sigma**2)
+
+        # attach RA/DEC in degrees and write out compact table
+
+        data_table["RA"] = ra
+
+        data_table["DEC"] = dec
+
+        coords = SkyCoord(ra * u.deg, dec * u.deg)
+
+        ra_str = coords.ra.to_string(unit=u.hour, sep=":", pad=True, precision=2)
+
+        dec_str = coords.dec.to_string(
+            unit=u.deg, sep=":", alwayssign=True, pad=True, precision=2
+        )
+
+        valid = np.isfinite(calibrated_mag)
+
+        out_table = Table(
+            [ra_str[valid], dec_str[valid], calibrated_mag[valid], calibrated_mag_error[valid]],
+            names=["RA", "DEC", f"MAG_CAL_{filter_string}", f"MAG_CAL_ERR_{filter_string}"],
+        )
+
+        out_path = os.path.join(
+            self.reduced_dir, f"calibrated_{object_name}_2MASS_{filter_string}.fits"
+        )
+
+        out_table.write(out_path, overwrite=True)
+
+        return 0
 
     def query_GAIA():
         # TODO implement this to query GAIA for photometric calibration
@@ -916,7 +1208,7 @@ class Photometric_parser:
 
 class ALFOSC_parser(Photometric_parser):
 
-    def __init__(self, reduced_dir, logger, object_setup, show_plots=False):
+    def __init__(self, reduced_dir, logger, object_setup, instrument, show_plots=False):
 
         # TODO make a global directory for these
         self.sex_config = os.path.normpath(os.path.join(reduced_dir, "default.sex"))
@@ -941,12 +1233,16 @@ class ALFOSC_parser(Photometric_parser):
         self.mask_x_fraction = 0.1
         self.mask_y_fraction = 0.1
 
-        super().__init__(reduced_dir, logger, object_setup, show_plots=show_plots)
-
+        super().__init__(reduced_dir, logger, object_setup, instrument, show_plots=show_plots)
 
     def calculate_photometry(self, obj_key, object_name):
 
-        
+        if self.stripped_filter_name not in self.filter_query_mapping_SDSS:
+            self.logger.error(
+                f"Filter {self.stripped_filter_name} not implemented for SDSS calibration. Implemented filters: {list(self.filter_query_mapping_SDSS.keys())}"
+            )
+            return
+
         query_result = self.query_SDSS(
             self.final_cat_filename,
             self.final_result_name,
@@ -966,34 +1262,67 @@ class ALFOSC_parser(Photometric_parser):
             self.logger.info(
                 f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
             )
-            if (
-                self.filter_query_mapping_PanSTARRS.get(
-                    self.stripped_filter_name
+            if self.stripped_filter_name not in self.filter_query_mapping_PanSTARRS:
+                self.logger.error(
+                    f"Filter {self.stripped_filter_name} not implemented for PanSTARRS calibration. Implemented filters: {list(self.filter_query_mapping_PanSTARRS.keys())}"
                 )
-                is not None
-            ):
-                self.logger.info(
-                    f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
-                )
-                self.query_PanSTARRS(
-                    self.final_cat_filename,
-                    self.final_result_name,
-                    self.filter_query_mapping_PanSTARRS[
-                        self.stripped_filter_name
-                    ][0],
-                    self.filter_query_mapping_PanSTARRS[
-                        self.stripped_filter_name
-                    ][1],
-                    self.exptime,
-                    object_name=object_name,
-                )
+                return
+            
+            self.logger.info(
+                f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
+            )
+            self.query_PanSTARRS(
+                self.final_cat_filename,
+                self.final_result_name,
+                self.filter_query_mapping_PanSTARRS[self.stripped_filter_name][0],
+                self.filter_query_mapping_PanSTARRS[self.stripped_filter_name][1],
+                self.exptime,
+                object_name=object_name,
+            )
 
 
 class NOTCAM_parser(Photometric_parser):
 
-    def __init__(self, reduced_dir, logger, object_setup, show_plots=False):
-        super().__init__(reduced_dir, logger, object_setup, show_plots=show_plots)
+    def __init__(self, reduced_dir, logger, object_setup, instrument, show_plots=False):
 
-    def run(self):
+        # TODO make a global directory for these
+        self.sex_config = os.path.normpath(os.path.join(reduced_dir, "default.sex"))
+        self.sex_param = os.path.normpath(os.path.join(reduced_dir, "run1.param"))
+        self.filter_query_mapping_2MASS = {
+            "J": ["Jmag", "e_Jmag"],
+            "H": ["Hmag", "e_Hmag"],
+            "K": ["Kmag", "e_Kmag"],
+            "Ks": ["Kmag", "e_Kmag"],
+        }
 
-        print(self.object_setup)
+        self.mask_x_fraction = 0.01
+        self.mask_y_fraction = 0.01
+
+
+        super().__init__(reduced_dir, logger, object_setup, instrument, show_plots=show_plots)
+
+    def calculate_photometry(self, obj_key, object_name):
+
+        if self.stripped_filter_name not in self.filter_query_mapping_2MASS:
+            self.logger.error(
+                f"Filter {self.stripped_filter_name} not implemented for 2MASS calibration. Implemented filters: {list(self.filter_query_mapping_2MASS.keys())}"
+            )
+            return
+
+        query_result = self.query_2MASS(
+            self.final_cat_filename,
+            self.final_result_name,
+            self.filter_query_mapping_2MASS[self.stripped_filter_name][0],
+            self.filter_query_mapping_2MASS[self.stripped_filter_name][1],
+            self.exptime,
+            object_name=object_name,
+        )
+        if query_result == 0:
+            self.logger.info(
+                f"Photometric calibration successful for {object_name} in {obj_key} using 2MASS."
+            )
+        else:
+            self.logger.error(
+                f"Photometric calibration failed for {object_name} in {obj_key} using 2MASS."
+            )
+            exit(-1)

@@ -1,0 +1,31 @@
+XTENSION= 'IMAGE   '           / IMAGE extension
+BITPIX  =                   16 / number of bits per data pixel
+NAXIS   =                    2 / number of data axes
+NAXIS1  =                 1024 / length of data axis 1
+NAXIS2  =                 1024 / length of data axis 2
+PCOUNT  =                    0 / required keyword; must = 0
+GCOUNT  =                    1 / required keyword; must = 1
+BZERO   =                32768 / offset data range to that of unsigned short
+BSCALE  =                    1 / default scaling factor
+BUNIT   = 'count   '           / Physical unit of data array
+INHERIT =                    T / Extension inherits primary header keywords
+CTYPE1  = 'RA---TAN'           / Gnomonic projection
+CTYPE2  = 'DEC--TAN'           / Gnomonic projection
+CRVAL1  =       237.3868003797 / [deg] RA at reference point
+CRVAL2  =        65.7143101331 / [deg] Dec at reference point
+CUNIT1  = 'deg     '           / Unit of 1st axis
+CUNIT2  = 'deg     '           / Unit of 2nd axis
+CRPIX1  =                500.2 / Reference pixel on 1st axis
+CRPIX2  =                531.7 / Reference pixel on 2nd axis
+CD1_1   = -3.40337889543198E-08 / Transformation matrix for primary WCS
+CD1_2   = 6.49997410899744E-05 / Transformation matrix for primary WCS
+CD2_1   = 6.49997410899744E-05 / Transformation matrix for primary WCS
+CD2_2   = 3.40337889543198E-08 / Transformation matrix for primary WCS
+EXTNAME = 'im1     '           / Extension name
+IMAGEID =                    1
+CCDNAME = 'SWIR3   '
+CCDSUM  = '1 1     '           / On-chip binning factors
+EXPTIME =                  60. / [s] Exposure time for this extension
+DATE-OBS= '2025-05-12T00:20:00.9' / Start of exposure
+DATE-AVG= '2025-05-12T00:20:30.9' / Midpoint of exposure
+END

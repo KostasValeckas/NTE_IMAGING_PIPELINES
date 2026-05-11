@@ -109,7 +109,7 @@ class ReductionPipeline:
             )
         )
 
-        self.object_setuo = self.instrument.reduce_science_frames(
+        self.object_setup = self.instrument.reduce_science_frames(
             self.raw_data_path,
             self.output_dir,
             self.setup_table,
@@ -118,7 +118,7 @@ class ReductionPipeline:
             show_plots=self.show_plots,
         )
 
-        self.instrument.subtract_sky(
+        self.object_setup = self.instrument.subtract_sky(
             self.output_dir, self.logger, show_plots=self.show_plots
         )
 
@@ -142,6 +142,7 @@ class ReductionPipeline:
                 self.output_dir,
                 self.logger,
                 self.object_setup,
+                self.instrument,
                 show_plots=self.show_plots,
             )
 
@@ -150,6 +151,7 @@ class ReductionPipeline:
                 self.output_dir,
                 self.logger,
                 self.object_setup,
+                self.instrument,
                 show_plots=self.show_plots,
             )
 
