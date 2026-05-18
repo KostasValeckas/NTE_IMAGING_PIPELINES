@@ -138,7 +138,7 @@ class ReductionPipeline:
                 return
 
         if self.instrument.name == "ALFOSC":
-            parser = ALFOSC_parser(
+            self.phot_parser = ALFOSC_parser(
                 self.output_dir,
                 self.logger,
                 self.object_setup,
@@ -147,7 +147,7 @@ class ReductionPipeline:
             )
 
         if self.instrument.name == "NOTCAM":
-            parser = NOTCAM_parser(
+            self.phot_parser = NOTCAM_parser(
                 self.output_dir,
                 self.logger,
                 self.object_setup,
@@ -155,4 +155,4 @@ class ReductionPipeline:
                 show_plots=self.show_plots,
             )
 
-        parser.run()
+        self.phot_parser.run()

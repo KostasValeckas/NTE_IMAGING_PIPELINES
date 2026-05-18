@@ -1,3 +1,4 @@
+* photometric pipeline design OOP part is misleading
 * fix exptime reading in photometric calibrations
 * background subtraction can be done in SExtractor and actually looks pretty good.
 * CRR removal!

@@ -71,6 +71,6 @@ if __name__ == "__main__":
         instrument, raw_data_path, output_dir=output_dir, show_plots=show_plots
     )
 
-    pipeline.run_pipeline()
+    #pipeline.run_pipeline()
 
     pipeline.run_photometric_calibrations()

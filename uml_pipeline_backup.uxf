@@ -1,0 +1,33 @@
+<diagram program="umletino" version="15.1"><zoom_level>10</zoom_level><element><id>UMLClass</id><coordinates><x>890</x><y>390</y><w>440</w><h>170</h></coordinates><panel_attributes>_object: Instrument_
+--
+Not to be used by itself, but defines an interface that all individual
+instrument implementations inherit from.
+
+Defines a minimal set of FITS header keywords every instrument 
+implementation should override.
+
+Contains generic methods for detector calibrations that 
+individual instruments can inherit from directly, 
+or override for specific needs.</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>940</x><y>550</y><w>30</w><h>90</h></coordinates><panel_attributes>lt=&lt;&lt;-</panel_attributes><additional_attributes>10;10;10;70</additional_attributes></element><element><id>UMLClass</id><coordinates><x>900</x><y>620</y><w>100</w><h>30</h></coordinates><panel_attributes>ALFOSC</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLClass</id><coordinates><x>1010</x><y>620</y><w>100</w><h>30</h></coordinates><panel_attributes>NOTCAM</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1050</x><y>550</y><w>30</w><h>90</h></coordinates><panel_attributes>lt=&lt;&lt;-</panel_attributes><additional_attributes>10;10;10;70</additional_attributes></element><element><id>UMLClass</id><coordinates><x>1130</x><y>620</y><w>100</w><h>30</h></coordinates><panel_attributes>NTE_NIR</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1170</x><y>550</y><w>30</w><h>90</h></coordinates><panel_attributes>lt=&lt;&lt;-</panel_attributes><additional_attributes>10;10;10;70</additional_attributes></element><element><id>UMLClass</id><coordinates><x>1250</x><y>620</y><w>100</w><h>30</h></coordinates><panel_attributes>NTE_VIS</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>1290</x><y>550</y><w>30</w><h>90</h></coordinates><panel_attributes>lt=&lt;&lt;-</panel_attributes><additional_attributes>10;10;10;70</additional_attributes></element><element><id>UMLClass</id><coordinates><x>520</x><y>250</y><w>280</w><h>120</h></coordinates><panel_attributes>_object: ReductionPipeline_
+--
+This method controls the overall execution 
+and logic of one reduction run. 
+
+It has an Instrument and a Photometric_parser
+as attributes and uses the methods defined 
+within the these classes to drive the reduction. </panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>790</x><y>260</y><w>180</w><h>150</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>10;10;160;10;160;130</additional_attributes></element><element><id>UMLClass</id><coordinates><x>340</x><y>430</y><w>380</w><h>150</h></coordinates><panel_attributes>_object: Photometric_parser_
+--
+Not to be used by itself, but defines generic methods needed 
+for photometric calibrations.
+
+An object inheriting from this class is created for every instrument
+to adapt the generic methods and guide photometric 
+calibrations for instrument specific needs.</panel_attributes><additional_attributes></additional_attributes></element><element><id>UMLClass</id><coordinates><x>300</x><y>640</y><w>100</w><h>30</h></coordinates><panel_attributes>ALFOSC_parser</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>340</x><y>570</y><w>30</w><h>90</h></coordinates><panel_attributes>lt=&lt;&lt;-</panel_attributes><additional_attributes>10;10;10;70</additional_attributes></element><element><id>UMLClass</id><coordinates><x>410</x><y>640</y><w>100</w><h>30</h></coordinates><panel_attributes>NOTCAM_parser</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>450</x><y>570</y><w>30</w><h>90</h></coordinates><panel_attributes>lt=&lt;&lt;-</panel_attributes><additional_attributes>10;10;10;70</additional_attributes></element><element><id>UMLClass</id><coordinates><x>530</x><y>640</y><w>100</w><h>30</h></coordinates><panel_attributes>NTE_NIR_parser</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>570</x><y>570</y><w>30</w><h>90</h></coordinates><panel_attributes>lt=&lt;&lt;-</panel_attributes><additional_attributes>10;10;10;70</additional_attributes></element><element><id>UMLClass</id><coordinates><x>650</x><y>640</y><w>100</w><h>30</h></coordinates><panel_attributes>NTE_VIS_parser</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>690</x><y>570</y><w>30</w><h>90</h></coordinates><panel_attributes>lt=&lt;&lt;-</panel_attributes><additional_attributes>10;10;10;70</additional_attributes></element><element><id>Relation</id><coordinates><x>490</x><y>300</y><w>50</w><h>150</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>30;10;10;10;10;130</additional_attributes></element><element><id>UMLInterface</id><coordinates><x>1000</x><y>140</y><w>260</w><h>180</h></coordinates><panel_attributes>run.py
+--
+This script is the entry point 
+to running the software. 
+
+It reads and parses user command 
+line input, spawns the ReductionPipeline
+object based on that input, 
+and triggers the execution of the pipeline.</panel_attributes><additional_attributes></additional_attributes></element><element><id>Relation</id><coordinates><x>640</x><y>150</y><w>510</w><h>120</h></coordinates><panel_attributes>lt=-</panel_attributes><additional_attributes>10;100;10;10;490;10</additional_attributes></element></diagram>

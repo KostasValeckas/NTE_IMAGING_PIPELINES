@@ -119,7 +119,7 @@ class Photometric_parser:
                         angle=theta,
                         edgecolor="red",
                         facecolor="none",
-                        linewidth=1,
+                        linewidth=3,
                     )
                     ax.add_patch(ell)
             else:
@@ -130,7 +130,7 @@ class Photometric_parser:
                         k * kron_factor,
                         edgecolor="red",
                         facecolor="none",
-                        linewidth=1,
+                        linewidth=3,
                     )
                     ax.add_patch(circ)
         elif has_fluxrad:
@@ -925,7 +925,7 @@ class Photometric_parser:
                 for file in files:
 
                     file_path = os.path.join(
-                        self.reduced_dir, "reduced_science_" + file
+                        self.reduced_dir, "sky_subtracted_" + file
                     )
 
                     hdul = open_fits_file(file_path, self.logger)
@@ -965,7 +965,7 @@ class Photometric_parser:
 
                     cat_filename = os.path.join(
                         self.reduced_dir,
-                        "reduced_science_" + file.replace(".fits", ".cat"),
+                        "sky_subtracted_" + file.replace(".fits", ".cat"),
                     )
 
                     cmd = [
@@ -1044,7 +1044,7 @@ class Photometric_parser:
                         for file in files:
                             f.write(
                                 os.path.join(
-                                    self.reduced_dir, "reduced_science_" + file + "[1]"
+                                    self.reduced_dir, "sky_subtracted_" + file + "[1]"
                                 )
                                 + "\n"
                             )
@@ -1199,7 +1199,7 @@ class Photometric_parser:
                 with fits.open(self.final_cat_filename) as hdul_table:
                     data_table = hdul_table[2].data
 
-                good_objects = data_table[data_table["FLAGS"] == 0]
+                good_objects = data_table#[data_table["FLAGS"] == 0]
 
                 self.plot_apertures(masked_final, good_objects, file)
 
@@ -1237,11 +1237,15 @@ class ALFOSC_parser(Photometric_parser):
 
     def calculate_photometry(self, obj_key, object_name):
 
+        
+
         if self.stripped_filter_name not in self.filter_query_mapping_SDSS:
             self.logger.error(
                 f"Filter {self.stripped_filter_name} not implemented for SDSS calibration. Implemented filters: {list(self.filter_query_mapping_SDSS.keys())}"
             )
             return
+        
+
 
         query_result = self.query_SDSS(
             self.final_cat_filename,
@@ -1251,10 +1255,15 @@ class ALFOSC_parser(Photometric_parser):
             self.exptime,
             object_name=object_name,
         )
+
         if query_result == 0:
             self.logger.info(
                 f"Photometric calibration successful for {object_name} in {obj_key}."
             )
+
+            return
+
+        
         else:
             self.logger.error(
                 f"Photometric calibration failed for {object_name} in {obj_key} using SDSS."
