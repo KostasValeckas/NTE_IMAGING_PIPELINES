@@ -897,7 +897,7 @@ class Instrument:
 
         return object_setup
 
-    def random_median_calc(self, frame):
+    def random_median_calc(self, frame, bpm=None):
         """
         TEST
 
@@ -907,6 +907,11 @@ class Instrument:
 
         data = np.array(frame)
 
+        if bpm is not None:
+            data = np.ma.masked_array(data, mask=bpm)
+            median = np.ma.median(data)
+            return median
+        """
         ny, nx = data.shape
 
         medians = []
@@ -915,8 +920,8 @@ class Instrument:
             y0 = np.random.randint(0, ny - 100)
             window = data[y0 : y0 + 100, x0 : x0 + 100]
             medians.append(np.nanmedian(window))
-
-        return np.nanmedian(medians)
+        """
+        return np.nanmedian(data)
 
     def sky_subtract_median(
         self, object_dict, output_path, logger, setup_key, show_plots=False
@@ -936,10 +941,11 @@ class Instrument:
                     f"Only one exposure exists for object {object}. Will only subtract the median"
                 )
                 frame = read_frame(output_path, f"reduced_science_{file}", self, logger)
-                frame_median = self.random_median_calc(frame.data)
+                bpm = frame.bpm if hasattr(frame, "bpm") else None
+                frame_median = self.random_median_calc(frame.data, bpm=bpm)
                 skysubbed_frame = frame.data.data - frame_median
 
-                sky_subtracted_median = self.random_median_calc(skysubbed_frame)
+                sky_subtracted_median = self.random_median_calc(skysubbed_frame, bpm=bpm)
 
                 plt.close()
 
@@ -1010,13 +1016,15 @@ class Instrument:
         frame_B = read_frame(output_path, f"reduced_science_{file_B}", self, logger)
 
         frame_A_data = frame_A.data.data.copy()
-        frame_A_hdul = frame_A.data.hdul.copy()
+        frame_A_hdul = frame_A.hdul.copy()
+        frame_A_bpm = frame_A.bpm.copy() if hasattr(frame_A, "bpm") else None
 
         frame_B_data = frame_B.data.data.copy()
-        frame_B_hdul = frame_B.data.hdul.copy()
+        frame_B_hdul = frame_B.hdul.copy()
+        frame_B_bpm = frame_B.bpm.copy() if hasattr(frame_B, "bpm") else None
 
-        median_A = self.random_median_calc(frame_A_data)
-        median_B = self.random_median_calc(frame_B_data)
+        median_A = self.random_median_calc(frame_A_data, bpm=frame_A_bpm)
+        median_B = self.random_median_calc(frame_B_data, bpm=frame_B_bpm)
 
         scale_A_B = median_A / median_B
         scale_B_A = median_B / median_A
@@ -1028,7 +1036,7 @@ class Instrument:
         data = [skysubtracted_A, skysubtracted_B]
         hduls = [frame_A_hdul, frame_B_hdul]
 
-        medians = [self.random_median_calc(frame) for frame in data]
+        medians = [self.random_median_calc(frame, bpm=bpm) for frame, bpm in zip(data, [frame_A_bpm, frame_B_bpm])]
 
         # plot and write
 
@@ -1046,7 +1054,7 @@ class Instrument:
             plt.tight_layout()
             save_path = os.path.join(
                 output_path,
-                f"sky_subtracted_{value['files'][0].split('.')[0]}.png",
+                f"sky_subtracted_{value['files'][i].split('.')[0]}.png",
             )
             plt.savefig(save_path)
             if show_plots:
@@ -1088,6 +1096,7 @@ class Instrument:
     ):
 
         sky_cube = []
+        bpm_sky_cube = []
 
         for object_name, value in object_dict.items():
 
@@ -1110,11 +1119,14 @@ class Instrument:
                 if len(sky_cube) == 0:
 
                     sky_cube.append(frame.data.copy())
-                    first_frame_median = self.random_median_calc(frame.data)
+                    bpm = frame.bpm.copy() if hasattr(frame, "bpm") else None
+                    first_frame_median = self.random_median_calc(frame.data, bpm=bpm)
 
                 else:
 
-                    frame_median = self.random_median_calc(frame.data.data)
+                    bpm = frame.bpm.copy() if hasattr(frame, "bpm") else None
+
+                    frame_median = self.random_median_calc(frame.data.data, bpm=bpm)
 
                     scale_factor = frame_median / first_frame_median
 
@@ -1125,6 +1137,8 @@ class Instrument:
                     )
 
                     sky_cube.append(scaled_frame)
+                
+                bpm_sky_cube.append(frame.bpm.copy() if frame.bpm is not None else None)
 
                 # take a copy of the middle hdul for writing master
                 # sky frame to disc
@@ -1141,12 +1155,22 @@ class Instrument:
                 sigma_clip_low_thresh=2,
                 sigma_clip_high_thresh=2,
             )
+
+            sky_bpm = np.sum(bpm_sky_cube, axis=0) > 0 if any(bpm is not None for bpm in bpm_sky_cube) else None
+
+
+            masked_master_sky = np.ma.masked_array(master_sky.data, mask=sky_bpm)
+
+            masked_median = np.ma.median(masked_master_sky)
+
+
+
             plt.imshow(
-                master_sky.data,
+                masked_master_sky,
                 cmap="gray",
                 origin="lower",
-                vmin=np.percentile(master_sky.data, 30),
-                vmax=np.percentile(master_sky.data, 95),
+                vmin=masked_median * 0.9,
+                vmax=masked_median * 1.1,
             )
             plt.colorbar()
             plt.title(f"Master Sky Frame for object {object_name} in setup {setup_key}")
@@ -1180,23 +1204,23 @@ class Instrument:
                 bpms.append(frame.bpm.copy())
 
             for i, frame in enumerate(raw_file_stack):
-                frame_median = self.random_median_calc(frame)
-                sky_median = self.random_median_calc(master_sky)
-                scale_factor = frame_median / sky_median
+                frame_median = self.random_median_calc(frame, bpm=bpms[i])
+          
+                scale_factor = frame_median / masked_median
                 sky_subtracted = frame - master_sky.data * scale_factor
-                sky_subtracted_median = self.random_median_calc(sky_subtracted)
+                sky_subtracted_median = self.random_median_calc(sky_subtracted, bpm=bpms[i])
                 # plot and write
                 plt.close()
 
                 if bpms[i] is not None:
                     mask = np.asarray(bpms[i], dtype=bool)
-                    sky_subtracted = np.ma.masked_array(sky_subtracted, mask=mask)
+                    sky_subtracted_masked = np.ma.masked_array(sky_subtracted, mask=mask)
 
                 vmin = np.nanpercentile(sky_subtracted, 5)
                 vmax = np.nanpercentile(sky_subtracted, 95)
                 plt.figure(figsize=(8, 6))
                 plt.imshow(
-                    sky_subtracted, cmap="gray", origin="lower", vmin=vmin, vmax=vmax
+                    sky_subtracted_masked, cmap="gray", origin="lower", vmin=vmin, vmax=vmax
                 )
                 plt.colorbar()
                 plt.title(
@@ -1240,6 +1264,10 @@ class Instrument:
         """
         This method is responsible for making decision on what skysubtraction method
         should be used.
+
+        Adds a new entry to object setup to indicate whether more than 5
+        dithers were used (sufficient sky subtraction) or no - this is needed
+        in further calibration steps.
         """
 
         # load the object setup from disk if not provided
@@ -1276,7 +1304,12 @@ class Instrument:
                         skyframes=True,
                     )
 
-                    return object_setup
+                    if len(object_value["sky_frames"]) >= 5:
+                        object_setup[key][object_name]["sufficient_sky_sub"] = True
+                    else:
+                        object_setup[key][object_name]["sufficient_sky_sub"] = False
+
+                    continue
 
                 files = object_value["files"]
 
@@ -1287,7 +1320,9 @@ class Instrument:
                         object_dict, output_path, logger, key, show_plots=show_plots
                     )
 
-                    return object_setup
+                    object_setup[key][object_name]["sufficient_sky_sub"] = False
+
+                    continue
 
                 # sort the filenames to ensure consistency in other steps
 
@@ -1327,6 +1362,19 @@ class Instrument:
 
                 dith_bool = False
 
+                if len(files) == 2 and (len(RA_unique) == 2 or len(DEC_unique) == 2):
+                    logger.info(
+                        f"Two dithered frames found for object {object_name}. Will perform A-B subtraction."
+                    )
+
+                    self.sky_subtract_AB(
+                        object_dict, output_path, logger, key, show_plots=show_plots
+                    )
+
+                    object_setup[key][object_name]["sufficient_sky_sub"] = False
+
+                    continue
+
                 if len(RA_unique) >= 3:
                     logger.info(
                         f"Found {len(RA_unique)} unique RA values for object {object_name} in setup {key}, indicating dithering in RA"
@@ -1349,18 +1397,11 @@ class Instrument:
                         object_dict, output_path, logger, key, show_plots=show_plots
                     )
 
-                    return object_setup
+                    object_setup[key][object_name]["sufficient_sky_sub"] = False
 
-                if len(files) == 2:
-                    logger.info(
-                        f"Two dithered frames found for object {object_name}. Will perform A-B subtraction."
-                    )
+                    continue
 
-                    self.sky_subtract_AB(
-                        object_dict, output_path, logger, key, show_plots=show_plots
-                    )
 
-                    return object_setup
 
                 # at this point regular dithering is the only option left
 
@@ -1377,7 +1418,12 @@ class Instrument:
                     skyframes=False,
                 )
 
-                return object_setup
+                if len(files) >= 5:
+                    object_setup[key][object_name]["sufficient_sky_sub"] = True
+                else:
+                    object_setup[key][object_name]["sufficient_sky_sub"] = False
+
+        return object_setup
 
 
 class ALFOSC(Instrument):

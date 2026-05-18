@@ -122,6 +122,11 @@ class ReductionPipeline:
             self.output_dir, self.logger, show_plots=self.show_plots
         )
 
+        # write the object setup to disk for use in photometric calibrations
+        object_setup_path = os.path.join(self.output_dir, "object_setup.json")
+        with open(object_setup_path, "w") as f:
+            json.dump(self.object_setup, f, indent=4)
+
     def run_photometric_calibrations(self):
 
         # load the object setup from disk if not provided
