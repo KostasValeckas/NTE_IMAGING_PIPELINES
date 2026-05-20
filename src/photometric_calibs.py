@@ -125,7 +125,7 @@ class Photometric_parser:
                         angle=theta,
                         edgecolor="red",
                         facecolor="none",
-                        linewidth=3,
+                        linewidth=1,
                     )
                     ax.add_patch(ell)
             else:
@@ -878,7 +878,7 @@ class Photometric_parser:
                 filters = info.get("filter", [])
 
                 # remove all entries that are not "Open"
-                filters = [f for f in filters if not f.startswith("Open")]
+                filters = [f for f in filters if ((not f.startswith("Open")) and (not f.startswith("OPEN")))]
 
                 # ensure only one filter remains
                 if len(filters) == 0:
