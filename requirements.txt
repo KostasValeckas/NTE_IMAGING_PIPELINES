@@ -1,0 +1,7 @@
+ccdproc
+astropy
+numpy
+matplotlib
+astroscrappy
+colorama
+astroquery

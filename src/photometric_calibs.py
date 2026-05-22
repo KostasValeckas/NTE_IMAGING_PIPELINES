@@ -4,7 +4,6 @@ import os
 import shlex
 import subprocess
 import matplotlib.pyplot as plt
-import json
 from IO import open_fits_file, get_header_value
 from matplotlib.patches import Ellipse
 from astropy.table import Table
