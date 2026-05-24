@@ -2,6 +2,7 @@ from instruments import Instrument
 from logger import init_logger
 from sorting import sort_data, create_setup_table, create_bias_table, create_flat_table
 from photometric_calibs import *
+import json
 
 
 class ReductionPipeline:
