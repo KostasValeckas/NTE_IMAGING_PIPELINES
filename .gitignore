@@ -170,3 +170,5 @@ config.ini
 secrets.json
 credentials.json
 
+# NOTCAM specific stuff
+*diff*
