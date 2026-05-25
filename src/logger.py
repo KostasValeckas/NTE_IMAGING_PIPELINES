@@ -20,7 +20,7 @@ def init_logger(path):
     # Configure logging level
     logger.setLevel(logging.INFO)
 
-    config_file_dir = pathlib.Path(path).parent
+    config_file_dir = pathlib.Path(path)
     config_file_name = pathlib.Path(path).stem + ".log"
 
     log_file_path = config_file_dir / config_file_name

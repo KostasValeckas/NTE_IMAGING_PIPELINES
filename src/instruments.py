@@ -116,7 +116,6 @@ class Instrument:
 
         master_frame_copy = master_frame.copy()
         master_frame_masked = np.ma.masked_array(master_frame_copy, mask=bad_pixel_mask)
-
         median = np.nanmedian(master_frame_masked)
 
         zero_pixels = master_frame_masked == 0
@@ -1229,7 +1228,7 @@ class Instrument:
                 self,
                 hdul_copy,
                 master_sky.data,
-                f"master_sky_{object_name}_{setup_key}",
+                f"master_sky_{object_name}_{setup_key}.fits",
                 output_path,
                 logger,
             )
@@ -1282,7 +1281,7 @@ class Instrument:
                 write_frame(
                     self,
                     hdul_copy,
-                    sky_subtracted.data,
+                    np.array(sky_subtracted.data),
                     f"sky_subtracted_{value['files'][i]}",
                     output_path,
                     logger,

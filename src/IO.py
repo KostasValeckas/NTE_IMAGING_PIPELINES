@@ -5,6 +5,7 @@ from astropy.io import fits
 from enum import Enum
 from logging import Logger
 from datatypes import Processed_frame
+import matplotlib.pyplot as plt
 
 
 def open_fits_file(filepath: str, logger: Logger):
@@ -87,25 +88,54 @@ def write_frame(
 
     data_hdu = hdul[instrument.data_hdu_extension]
 
-    data_hdu.data = master_frame
+    data_hdu.data = master_frame.copy()
 
     # append the bad pixel mask as a new HDU to the HDUList
     orig_header = hdul[instrument.data_hdu_extension].header
+
+    # TODO: the following code assumes that bpm hdul is always data + 1
+    # and masked_array hdul is data + 2 - make more flexible?
+
+
     if bad_pixel_mask is not None:
         bad_pixel_hdu = fits.ImageHDU(
             data=bad_pixel_mask.astype(np.uint8), name="BAD_PIXEL_MASK"
         )
-    else:
-        # if no bad pixel mask provided, create an empty one with same shape as data
-        bad_pixel_hdu = fits.ImageHDU(
-            data=np.zeros_like(master_frame, dtype=np.uint8), name="BAD_PIXEL_MASK"
-        )
 
-    # ensure the extension name is correct
-    bad_pixel_hdu.header["EXTNAME"] = "BAD_PIXEL_MASK"
 
-    bad_pixel_hdu.header.add_comment("Bad pixel mask for the frame")
-    hdul.append(bad_pixel_hdu)
+        # ensure the extension name is correct
+        bad_pixel_hdu.header["EXTNAME"] = "BAD_PIXEL_MASK"
+
+        bad_pixel_hdu.header.add_comment("Bad pixel mask for the frame")
+        # if there exists a bpm - override
+        if len(hdul) >= instrument.data_hdu_extension + 2:
+            hdul[instrument.data_hdu_extension + 1] = bad_pixel_hdu
+        # else - create a bpm entry
+        else:
+            hdul.append(bad_pixel_hdu)
+
+        # mask the data if bpm is provided and append to the hdul
+        
+        masked_data_hdul = data_hdu.copy()
+        masked_data_hdul.data = master_frame.copy()
+        masked_data_hdul.data[np.array(bad_pixel_hdu.data, dtype=bool)] = np.nan
+        masked_data_hdul.header["EXTNAME"] = "MASKED_FRAME"
+
+        hdul.append(masked_data_hdul)
+
+    elif len(hdul) >= instrument.data_hdu_extension + 3:
+        
+        bad_pixel_hdu = hdul[instrument.data_hdu_extension + 1]
+
+        masked_data_hdul = hdul[instrument.data_hdu_extension + 2]
+        masked_data_hdul.data = master_frame.copy()
+        masked_data_hdul.data[np.array(bad_pixel_hdu.data, dtype=bool)] = np.nan
+        masked_data_hdul.header["EXTNAME"] = "MASKED_FRAME"
+        
+
+
+
+ 
 
     # update header to record creation
     try:
@@ -129,7 +159,7 @@ def write_frame(
 
     try:
         hdul.writeto(output_path, overwrite=True)
-        logger.info(f"Successfully wrote master frame to {output_path}")
+        logger.info(f"Successfully wrote frame to {output_path}")
     except Exception as e:
         logger.error(f"Error writing frame to {output_path}: {e}")
 
