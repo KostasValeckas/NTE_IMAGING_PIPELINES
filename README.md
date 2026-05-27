@@ -21,9 +21,18 @@ this code uses two other instruments at the Nordic Optical Telescope as proxies:
 ALFOSC (as a proxy for NTE visual imager) and NOTcam (as a proxy for NTE near-infrared 
 imager).
 
-## Installation 
+# Installation 
 
-### The Python code
+## The Python code
+
+The pipeline as it is now comes distributed as scripts. Therefore, there is no 
+installation needed, as long as the code is dowloaded from this repository.
+
+## Requirments 
+
+run the software. If you do not know how to do so, see the [primer on Python envirorment](#how-to-create-a-clean-python-envirorment) below. 
+
+
 
 
 ### SExtractor, SCAMP and SWarp 
@@ -75,3 +84,67 @@ python3 src/run.py /app/test_data/alfosc/GRB250404A alfosc
 ```bash
 python3 src/run.py /app/test_data/notcam/sn2021xel notcam
 ```
+# How to create a clean Python envirorment
+
+To ensure the best possible stability of the software and to avoid version conflicts with other Python packages on your system, it is **strongly recommended** to create a clean Python environment for running the software.
+
+**Using Anaconda (conda) (recommended):**
+
+To create a new virtual environment using Anaconda, run the following command in your terminal 
+(if you are using Windows, do this and all following commands from the Anaconda Prompt):
+
+    conda create --name NTE_IMAGING_PIPELINE python=3.11
+
+You can replace ``NTE_IMAGING_PIPELINE`` with any name you like. This will create a new environment with Python 3.11 installed.
+
+To activate the environment, run:
+
+    conda activate NTE_IMAGING_PIPELINE
+
+**Using venv (standard Python):**
+
+To create a new virtual environment using venv (standard Python), make sure you have Python 3.11 installed,
+then run the following command in your terminal:
+
+    python3.11 -m venv NTE_IMAGING_PIPELINE
+
+You can replace ``NTE_IMAGING_PIPELINE`` with any name you like. This will create a new environment with Python version 3.11 installed.
+
+
+
+    If you are using Windows, you might need to run the following command instead:
+
+        python -m venv NTE_IMAGING_PIPELINE
+
+    This is because the Python executable might not be named ``python3.11`` on Windows.
+    In that case, you can ensure that the correct version of Python is used by running:
+
+
+        python --version
+
+    If the Python version printed is not 3.11, you have several options:
+
+    1. If your version is not 3.11, you most likely will be fine. Otherwise, try one of the following steps.
+    2. Install Anaconda and create the environment using the conda command as described above.
+    3. You can set the Python version to be used by the terminal by adding the Python installation directory to the PATH environment variable. See the following link for more information: `How to set the path and environment variables in Windows <https://realpython.com/add-python-to-path/>`_.
+
+To activate the environment, run:
+
+For Linux/MacOS:
+
+
+    source NTE_IMAGING_PIPELINE/bin/activate
+
+, where ``NTE_IMAGING_PIPELINE/bin/activate`` is the path to the activate script in the environment.
+
+For Windows:
+
+
+    # In PowerShell
+    .\NTE_IMAGING_PIPELINE\Scripts\Activate.ps1
+
+
+    # In cmd.exe
+    .\NTE_IMAGING_PIPELINE\Scripts\Activate.bat
+
+, where ``NTE_IMAGING_PIPELINE/Scripts`` is the path to the activate script in the environment.
