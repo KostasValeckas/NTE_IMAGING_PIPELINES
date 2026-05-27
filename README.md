@@ -3,10 +3,12 @@
 This repository holds the code developed as a part of the Masters' thesis project
 by Kostas Valeckas, NBI and Nordic Optical Telescope. 
 
-## Disclaimer
+## Disclaimer and License
 
 The code is currently work in progress and any usage in research is at own 
-responsibility for correctness. 
+responsibility for correctness.
+
+
 
 ## Quick description
 
@@ -27,3 +29,19 @@ imager).
 
 ### Using a docker image
 
+
+```bash
+sudo docker build -t nte_imaging_pipelines .
+```
+
+```bash
+sudo docker run -it nte_imaging_pipelines bash
+```
+
+```bash
+python3 src/run.py /app/test_data/alfosc/GRB250404A alfosc
+```
+
+```bash
+python3 src/run.py /app/test_data/notcam/sn2021xel notcam
+```
