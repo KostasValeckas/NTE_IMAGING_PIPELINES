@@ -23,19 +23,40 @@ imager).
 
 # Installation 
 
+This section describes how to install the pipeline locally on your own machine. 
+You will both need to install the Python package and the SExtractor, SCAMP and SWarp 
+tools - all desribed in the following.
+
+**NOTE:** the installation can be done using the described [docker image](#using-a-docker-image). This is the simplest way to test the software, if 
+you do not wish to develop it.
+
+## Clean Python envirorment
+
+To ensure the most stable performance and intstallation, it is **strongly** recommended that you do 
+the installation in a clean Python >= 3.11 envirorment.
+ If you do not know how to do so, see the [primer on Python envirorment](#how-to-create-a-clean-python-envirorment) below. 
+
+
 ## The Python code
 
-The pipeline as it is now comes distributed as scripts. Therefore, there is no 
-installation needed, as long as the code is dowloaded from this repository.
+To install the Python code, first download/clone this repository, and then while 
+in the repository, run: 
 
-## Requirments 
+    pip install .
 
-run the software. If you do not know how to do so, see the [primer on Python envirorment](#how-to-create-a-clean-python-envirorment) below. 
+if you want a non-editable version, or: 
 
+    pip install -e .
 
+if you want an editable version. 
 
+To test the installation, run: 
 
-### SExtractor, SCAMP and SWarp 
+    run_img_pipeline --help
+
+This should print the help pages for running the software.
+
+## SExtractor, SCAMP and SWarp 
 
 The astrometric and photometric parts of the pipeline uses [Source Extractor](https://www.astromatic.net/software/sextractor/), [SCAMP](https://www.astromatic.net/software/scamp/) and [SWarp](https://www.astromatic.net/software/swarp/). You need these tools installed if you wish to run the 
 astrometric and photometric part of the pipeline. The pipeline is tested with the current versions 
