@@ -4,8 +4,20 @@ from sorting import sort_data, create_setup_table, create_bias_table, create_fla
 from photometric_calibs import *
 import json
 
+"""
+Module for driving the data reduction pipeline. 
+
+The reduction process is abstracted into the `ReductionPipeline` class.`
+"""
 
 class ReductionPipeline:
+    """
+    Class for running the data reduction pipeline.
+
+    This class abstracts a reduction run by encapsulating all the steps
+    involved in the data reduction process and storing the intermediate 
+    products in the memory.
+    """
     def __init__(
         self, instrument: Instrument, raw_data_path, output_dir=None, show_plots=False
     ):

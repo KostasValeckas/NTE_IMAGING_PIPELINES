@@ -9,10 +9,53 @@ from datetime import datetime
 from datatypes import ImageType
 from IO import open_fits_file, get_header_value, get_header_values
 
+"""
+Module for automatic sorting of raw data.
+"""
+
 
 def sort_data(
     instrument: Instrument, logger: Logger, raw_data_path: str, output_path: str = None
 ):
+    
+    """
+    Method for sorting raw data files into bias, dark, flat and science 
+    categories based on criteria defined in the `Instrument` class 
+    implementation of the instrument being processed.
+
+    Writes lists to disc with the filenames of different categories, 
+    and returns them as lists.
+
+    Parameters
+    ----------
+    instrument : Instrument
+        The instrument for which the data reduction is being run. The sorting
+        relies on the `match_image_type` method of the instrument to classify
+        the files.
+
+    logger : Logger
+        Logger object for logging messages during the sorting process.
+
+    raw_data_path : str
+        Path to the directory containing the raw data files to be sorted.
+
+    output_path : str
+        Path to the directory where the sorted file lists will be saved.
+
+    Returns
+    -------
+    bias_files : list of str
+        List of filenames classified as bias frames.
+
+    dark_files : list of str
+        List of filenames classified as dark frames.    
+
+    flat_files : list of str
+        List of filenames classified as flat frames.
+
+    science_files : list of str
+        List of filenames classified as science frames.
+    """
 
     all_files = os.listdir(raw_data_path)
 
@@ -102,6 +145,47 @@ def create_setup_table(
     output_dir: str,
     science_file_list,
 ):
+    
+    """
+    Sorts all science observations into setups based on
+    -  the window used
+    -  the binning in x and y
+    -  the filter(s) used
+
+    Parameters
+    ----------
+    instrument : Instrument
+        The instrument for which the data reduction is being run.
+
+    logger : Logger
+        Logger instance for logging messages.
+
+    input_dir : str
+        Directory containing the input science files.
+
+    output_dir : str
+        Directory where the output setup table will be written.
+
+    science_file_list : list of str
+        List of science file names to process.
+
+    Writes the setup to disc as a .json file.
+
+    Returns
+    -------
+    setup_table : dict
+        Dictionary containing the setup table information. The format is:
+        {
+            setup_idx: {
+                "window": window,
+                "bin_x": bin_x,
+                "bin_y": bin_y,
+                "filter": filter_names,
+                "files": [list of science files belonging to this setup]
+            },
+            ...
+        }
+    """
 
     setup_table = {}
     setup_counter = 0
@@ -167,6 +251,52 @@ def create_bias_table(
     setup_table,
     bias_file_list,
 ):
+
+    """
+    Creates a bias table that maps each unique combination of:
+    -  window
+    -  binning in x and y
+
+    Also creates a map from science setups to bias table entries, as bias 
+    is independent of filter so setups do not map 1-to-1.
+
+    Both returns the setup dictionaries and writes them to disc as .json files.
+    
+    Parameters
+    ----------
+    instrument : Instrument
+        The instrument for which the data reduction is being run.
+
+    logger : Logger
+        Logger instance.
+
+    input_dir : str
+        Directory containing the input bias files.
+
+    output_dir : str
+        Directory where the output bias table and science-to-bias map will be written.
+
+    Returns
+    -------
+    bias_table : dict
+        Dictionary containing the bias table information. The format is:
+        {
+            bias_idx: {
+                "window": window,
+                "bin_x": bin_x,
+                "bin_y": bin_y,
+                "files": [list of bias files belonging to this bias configuration]
+            },
+            ...
+        }
+
+    science_to_bias_map : dict
+        Dictionary mapping science setup indices to bias table indices. The format is:
+        {
+            science_setup_idx: bias_idx,
+            ...
+        }
+    """
 
     bias_table = {}
     bias_key_map = {}
@@ -248,6 +378,50 @@ def create_flat_table(
     setup_table,
     flat_file_list,
 ):
+    
+    """
+    Creates a flat table that maps each unique combination of:
+    -  window
+    -  binning in x and y
+    -  filter(s) used
+
+    Returns the flat table as a dictionary and writes it to disc as a .json file.
+
+    Parameters
+    ----------
+    instrument : Instrument
+        The instrument for which the data reduction is being run.
+
+    logger : Logger
+        Logger instance for logging messages.
+
+    input_dir : str
+        Directory containing the input files.
+
+    output_dir : str
+        Directory where the output files will be written.
+
+    setup_table : dict
+        Dictionary mapping setup indices to their parameters.
+
+    flat_file_list : list
+        List of flat field files to process.
+
+    Returns
+    -------
+    flat_table : dict
+        Dictionary mapping setup indices to their flat field parameters. The format is:
+        {
+            setup_idx: {
+                "window": window,
+                "bin_x": bin_x,
+                "bin_y": bin_y,
+                "filter": filter_names,
+                "files": [list of flat files belonging to this setup]
+            },
+            ...
+        }
+    """
 
     flat_table = {}
 

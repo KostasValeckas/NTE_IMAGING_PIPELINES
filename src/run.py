@@ -6,6 +6,15 @@ from instruments import *
 
 from reduction import ReductionPipeline
 
+"""
+Interface for running the data reduction pipeline from the command line.
+
+Parses user arguments, initializes the reduction pipeline with the specified 
+instrument and paths, and triggers execution of the reduction and photometric 
+calibration steps based on user input.
+
+"""
+
 
 def main():
     # TODO: should logger be initialized already here?
