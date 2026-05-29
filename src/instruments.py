@@ -219,6 +219,29 @@ class Instrument:
         self.RA_keyword = RA_keyword if RA_keyword is not None else (None, 0)
         self.DEC_keyword = DEC_keyword if DEC_keyword is not None else (None, 0)
 
+    def get_header_value(self, hdul, keyword_tuple, logger):
+        """
+        Helper method to extract header values based on provided keyword tuple.
+        This is a wrapper around the `get_header_value` function in the `IO` module,
+        so the instruments can adjust for specific cases.
+
+        Parameters
+        ----------
+        hdul : astropy.io.fits.HDUList
+            The HDUList object containing the FITS header and data.
+
+        keyword_tuple: tuple
+            Tuple of (keyword(s), extension) where keyword(s) can be a string or a list of strings.
+
+        Returns
+        -------
+        value(s) corresponding to the provided keyword(s) in the specified HDU extension. 
+        If the keyword is not found or its value is None, returns None.
+        """
+
+        return get_header_value(hdul, keyword_tuple, logger)
+
+
     def match_image_type(self, hdul) -> Optional[ImageType]:
         """
         Base implementation: intended to be overridden by subclasses.
@@ -889,6 +912,8 @@ class Instrument:
         logger,
         show_plots=False,
         bad_pixel_masks=None,
+        #TODO: now configured to take the bpm's from them disc,
+        # implementent it use ones from head if exists
         dark_frames=None,
         bias_frames=None,
         flat_frames=None,
@@ -897,6 +922,89 @@ class Instrument:
         skip_bias=False,
         skip_flats=False,
     ):
+
+        """
+        Method for reducing science frames for each setup defined in the
+        `science_configurations` dictionary.
+
+        Can perform dark and/or bias subtraction, flat fielding and
+        cosmic ray removal. Also estimates a bad pixel mask. 
+
+        Sorts the reduced files into new dictionaries based on the object 
+        name for further processing (like sky-sub and combinning).
+
+        Writes the reduced science frames to disk.
+
+        Parameters
+        ----------
+        raw_data_path: str
+            Directory where the raw science frames are located.
+
+        output_dir: str
+            Directory where the reduced science frames and diagnostic plots will be saved.
+
+        science_configurations: dict
+            Dictionary defining the science frames to be reduced for each setup.
+            A dictionary mapping a unique setup key (string) to a configuration dict for that science setup.
+
+            Each configuration dict should contain the following keys:
+            - "files": list[str]
+            List of raw science filenames for this setup (required).
+            - "window": str | int
+            Identifier for the detector window used (used in logging; required).
+            - "bin_x": int
+            Binning in X direction (required).
+            - "bin_y": int
+            Binning in Y direction (required).
+            - "filter": str | list[str]
+            Filter name(s) for this setup (used in logging; required).
+
+        logger: `logger.logger` instance
+            Logger object.
+
+        show_plots: bool, optional
+            Whether to display diagnostic plots during science frame reduction. Default is False.
+
+        bad_pixel_masks: dict, optional
+            Dictionary of bad pixel masks for each setup, 
+            where the keys are the same as in bias setup files.
+
+        dark_frames: dict, optional
+            Dictionary of master dark frames.
+            (See `sorting` module).
+
+        bias_frames: dict, optional
+            Dictionary of master bias frames.
+            (See `sorting` module).
+
+        flat_frames: dict, optional
+            Dictionary of master flat frames.
+            (See `sorting` module).
+
+        science_to_bias_map: dict, optional
+            Dictionary mapping the science setup keys to the corresponding bias setup keys.
+            (Also used for darks, see `sorting` module).
+
+        skip_dark: bool, optional
+            Whether to skip dark correction for the science frames. Default is False.
+
+        skip_bias: bool, optional
+            Whether to skip bias correction for the science frames. Default is False.
+
+        skip_flats: bool, optional
+            Whether to skip flat fielding for the science frames. Default is False.
+
+        Returns
+        -------
+        object_setup: dict
+            Science setups sorted by object name. The structure is
+
+            - key (int) (this is the same configuration number as in the science
+            reduction):
+            - object_name (str):
+                - files (list of str)
+                - filter (list of str)
+        """
 
         # These booleans control whether to skip certain steps
         # The copy is taken to reset at every configuration, since
@@ -1042,7 +1150,7 @@ class Instrument:
                     ccd_data = CCDData(hdul[self.data_hdu_extension].data, unit=u.adu)
 
                 # put the object in the object setup
-                object_name = get_header_value(hdul, self.object_keyword, logger)
+                object_name = self.get_header_value(hdul, self.object_keyword, logger)
 
                 if object_name not in object_setup[key]:
                     object_setup[key][object_name] = {
@@ -1180,7 +1288,7 @@ class Instrument:
                     frame = read_frame(
                         output_dir, f"reduced_science_{file}", self, logger
                     )
-                    exptime = get_header_value(
+                    exptime = self.get_header_value(
                         frame.hdul, self.exposure_time_keyword, logger
                     )
 
@@ -1196,13 +1304,13 @@ class Instrument:
                             )
 
                             hdul = frame.hdul.copy()
-                            data_extension = get_header_value(
+                            data_extension = self.get_header_value(
                                 frame.hdul, self.data_extension_keyword, logger
                             )
-                            gain = get_header_value(
+                            gain = self.get_header_value(
                                 frame.hdul, self.gain_keyword, logger
                             )
-                            rdnoise = get_header_value(
+                            rdnoise = self.get_header_value(
                                 frame.hdul, self.read_noise_keyword, logger
                             )
 
@@ -1232,12 +1340,21 @@ class Instrument:
 
         return object_setup
 
-    def random_median_calc(self, frame, bpm=None):
+    def safe_median_calc(self, frame, bpm=None):
         """
-        TEST
+        Safe median calculation that accounts for the bad pixel mask.
 
-        Take random 50 of 100 x 100 pixel windows and calculate the
-        median of them each, and return the median of that list
+        Parameters
+        ----------
+        frame : 2D array-like
+            The frame to calculate the median for.
+        bpm : np.ndarray, optional
+            Bad pixel mask to apply during median calculation.
+
+        Returns
+        -------
+        float
+            The calculated median value.
         """
 
         data = np.array(frame)
@@ -1246,21 +1363,36 @@ class Instrument:
             data = np.ma.masked_array(data, mask=bpm)
             median = np.ma.median(data)
             return median
-        """
-        ny, nx = data.shape
 
-        medians = []
-        for _ in range(50):
-            x0 = np.random.randint(0, nx - 100)
-            y0 = np.random.randint(0, ny - 100)
-            window = data[y0 : y0 + 100, x0 : x0 + 100]
-            medians.append(np.nanmedian(window))
-        """
         return np.nanmedian(data)
 
     def sky_subtract_median(
         self, object_dict, output_path, logger, setup_key, show_plots=False
     ):
+
+        """
+        Simple method to subtract sky background using the median of the frame
+        (constant background).
+
+        Intended as a fallback for cases where no other alternatives can be 
+        employed.
+
+        Writes the sky-subtracted frames to disk.
+
+        Parameters
+        ----------
+        object_dict : dict
+            Dictionary containing object information 
+            (see output of `reduce_science_frames` and `subtract_sky` methods).
+        output_path : str
+            Path to the output directory.
+        logger : logging.Logger
+            Logger instance for logging messages.
+        setup_key : str
+            Key for the current setup. (see `science_configurations` dictionary)
+        show_plots : bool, optional
+            Whether to show plots interactively (default is False).
+        """
 
         for object_name, value in object_dict.items():
 
@@ -1277,10 +1409,10 @@ class Instrument:
                 )
                 frame = read_frame(output_path, f"reduced_science_{file}", self, logger)
                 bpm = frame.bpm if hasattr(frame, "bpm") else None
-                frame_median = self.random_median_calc(frame.data, bpm=bpm)
+                frame_median = self.safe_median_calc(frame.data, bpm=bpm)
                 skysubbed_frame = frame.data.data - frame_median
 
-                sky_subtracted_median = self.random_median_calc(
+                sky_subtracted_median = self.safe_median_calc(
                     skysubbed_frame, bpm=bpm
                 )
 
@@ -1331,12 +1463,30 @@ class Instrument:
                 )
 
     def sky_subtract_AB(
-        self, object_dict, output_path, logger, setup_key, show_plots=False
+        self, object_dict, output_path, logger, show_plots=False
     ):
+
+        """
+        Method for performing A-B sky subtraction.
+
+        Writes the sky-subtracted frames to disk.
+
+        Parameters
+        ----------
+        object_dict : dict
+            Dictionary containing object information 
+            (see output of `reduce_science_frames` and `subtract_sky` methods).
+        output_path : str
+            Path to the output directory.
+        logger : logging.Logger
+            Logger instance for logging messages.
+        show_plots : bool, optional
+            Whether to show plots interactively (default is False).
+        """
 
         # sanity check that only two files exists:
 
-        for object_name, value in object_dict.items():
+        for _, value in object_dict.items():
 
             if len(value["files"]) != 2:
                 logger.error(
@@ -1360,8 +1510,8 @@ class Instrument:
         frame_B_hdul = frame_B.hdul.copy()
         frame_B_bpm = frame_B.bpm.copy() if hasattr(frame_B, "bpm") else None
 
-        median_A = self.random_median_calc(frame_A_data, bpm=frame_A_bpm)
-        median_B = self.random_median_calc(frame_B_data, bpm=frame_B_bpm)
+        median_A = self.safe_median_calc(frame_A_data, bpm=frame_A_bpm)
+        median_B = self.safe_median_calc(frame_B_data, bpm=frame_B_bpm)
 
         scale_A_B = median_A / median_B
         scale_B_A = median_B / median_A
@@ -1374,7 +1524,7 @@ class Instrument:
         hduls = [frame_A_hdul, frame_B_hdul]
 
         medians = [
-            self.random_median_calc(frame, bpm=bpm)
+            self.safe_median_calc(frame, bpm=bpm)
             for frame, bpm in zip(data, [frame_A_bpm, frame_B_bpm])
         ]
 
@@ -1434,6 +1584,27 @@ class Instrument:
         show_plots=False,
         skyframes=False,
     ):
+        
+        """
+        Method for performing sky subtraction by constructing a sky frames 
+        using either dithered science frames or off-beam sky observations.
+
+        Writes the constructed sky frame and the sky-subtracted frames to disk.
+
+        Parameters
+        ----------
+        object_dict : dict
+            Dictionary containing object information  
+            (see output of `reduce_science_frames` and `subtract_sky` methods).
+        output_path : str
+            Path to the output directory.
+        logger : logging.Logger
+            Logger instance for logging messages.
+        show_plots : bool, optional
+            Whether to show plots interactively (default is False).
+        skyframes : bool, optional
+            Whether off-beam sky observations exist. Default is False.
+        """
 
         sky_cube = []
         bpm_sky_cube = []
@@ -1460,13 +1631,13 @@ class Instrument:
 
                     sky_cube.append(frame.data.copy())
                     bpm = frame.bpm.copy() if hasattr(frame, "bpm") else None
-                    first_frame_median = self.random_median_calc(frame.data, bpm=bpm)
+                    first_frame_median = self.safe_median_calc(frame.data, bpm=bpm)
 
                 else:
 
                     bpm = frame.bpm.copy() if hasattr(frame, "bpm") else None
 
-                    frame_median = self.random_median_calc(frame.data.data, bpm=bpm)
+                    frame_median = self.safe_median_calc(frame.data.data, bpm=bpm)
 
                     scale_factor = frame_median / first_frame_median
 
@@ -1545,11 +1716,11 @@ class Instrument:
                 bpms.append(frame.bpm.copy())
 
             for i, frame in enumerate(raw_file_stack):
-                frame_median = self.random_median_calc(frame, bpm=bpms[i])
+                frame_median = self.safe_median_calc(frame, bpm=bpms[i])
 
                 scale_factor = frame_median / masked_median
                 sky_subtracted = frame - master_sky.data * scale_factor
-                sky_subtracted_median = self.random_median_calc(
+                sky_subtracted_median = self.safe_median_calc(
                     sky_subtracted, bpm=bpms[i]
                 )
                 # plot and write
@@ -1616,7 +1787,26 @@ class Instrument:
 
         Adds a new entry to object setup to indicate whether more than 5
         dithers were used (sufficient sky subtraction) or no - this is needed
-        in further calibration steps.
+        in further calibration steps (see the `photometric_calibs` module).
+
+        Parameters
+        ----------
+        output_path : str
+            Path to the output directory.
+
+        logger : logging.Logger
+            Logger instance for logging messages.
+
+        object_setup : dict, optional
+            Dictionary containing object information (see output of `reduce_science_frames` method).
+
+        show_plots : bool, optional
+            Whether to show plots interactively (default is False).
+
+        Returns
+        -------
+        object_setup : dict
+            Updated object setup dictionary.
         """
 
         # load the object setup from disk if not provided
@@ -1689,8 +1879,8 @@ class Instrument:
                         output_path, f"reduced_science_{file}", self, logger
                     )
 
-                    RA = get_header_value(frame.hdul, self.RA_keyword, logger)
-                    DEC = get_header_value(frame.hdul, self.DEC_keyword, logger)
+                    RA = self.get_header_value(frame.hdul, self.RA_keyword, logger)
+                    DEC = self.get_header_value(frame.hdul, self.DEC_keyword, logger)
 
                     RA_list.append(RA)
                     DEC_list.append(DEC)
@@ -1774,7 +1964,11 @@ class Instrument:
 
 
 class ALFOSC(Instrument):
-    """ALFOSC instrument configuration for NOT telescope"""
+    """
+    ALFOSC instrument implementation.
+
+    See parent `Instrument` class for method documentation.
+    """
 
     def __init__(self):
         # Define ALFOSC CCD detector parameters
@@ -1805,6 +1999,19 @@ class ALFOSC(Instrument):
         )
 
     def match_image_type(self, hdul) -> Optional[ImageType]:
+        """
+        Image sorting for ALFOSC imaging.
+
+        Parameters
+        ----------
+        hdul : fits.HDUList
+            The HDUList of the frame to classify.
+
+        Returns
+        -------
+        ImageType enum
+            The type of the image (bias, dark, flat, or science).
+        """
 
         if hdul[0].header["IMAGETYP"] in self.bias_keyword:
             return ImageType.BIAS
@@ -1884,10 +2091,14 @@ class ALFOSC(Instrument):
 
 
 class NOTCAM(Instrument):
-    """NOTCAM instrument configuration for NOT telescope"""
+    """
+    NOTCAM instrument implementation.
+
+    See parent `Instrument` class for method documentation.
+    """
 
     def __init__(self):
-        # Define NOTCAM CCD detector parameters
+        # Define NOTCAM SWIR3 detector parameters
         notcam_swir3 = Detector(
             window_keyword=None,
             bin_x_keyword=None,
@@ -1915,7 +2126,23 @@ class NOTCAM(Instrument):
         )
 
     def get_header_value(self, hdul, keyword_tuple) -> Optional[str]:
-        """Helper method to extract header value based on provided keyword tuple"""
+        """
+        Override the get_header_value method to return dummy values for detrector
+        geometry as NOTCAM
+        does not offer custom binning or windowing modes.
+
+        Parameters        
+        ----------
+        hdul : fits.HDUList
+            The HDUList of the frame to extract the header value from.
+        keyword_tuple : tuple
+            The tuple containing the header keyword(s) and the HDU index.
+
+        Returns
+        -------
+        str or None
+            The value of the header keyword, or a dummy value for binning/windowing keywords.
+        """
 
         # these are all constant for NOTCAM, so we use a dummy value
         if keyword_tuple in [
@@ -1929,6 +2156,19 @@ class NOTCAM(Instrument):
             return super().get_header_value(hdul, keyword_tuple)
 
     def match_image_type(self, hdul) -> Optional[ImageType]:
+        """
+        Image sortig for NOTCAM imaging.
+
+        Parameters
+        ----------
+        hdul : fits.HDUList
+            The HDUList of the frame to classify.
+
+        Returns
+        -------
+        ImageType enum
+            The type of the image (bias, dark, flat, or science).
+        """
 
         # bias frames are not applicable for NOTCAM, so we skip that check
 
@@ -1938,13 +2178,10 @@ class NOTCAM(Instrument):
         if ("dark" in hdul[0].header["OBJECT"]) or ("dfra" in hdul[0].header["OBJECT"]):
             return ImageType.DARK
 
-        print(hdul[0].header["IMAGETYP"])
-
         if (
-            ("OBJECT" in hdul[0].header["IMAGETYP"])
-            or ("SKY" in hdul[0].header["IMAGETYP"])
-            # and (hdul[0].header["IMAGECAT"] == "SCIENCE")
-            # and (hdul[0].header["NCGRNM"] == "Open")
+            (("OBJECT" in hdul[0].header["IMAGETYP"])
+            or ("SKY" in hdul[0].header["IMAGETYP"]))
+            and (hdul[0].header["NCGRNM"] == "Open")
         ):
             return ImageType.SCIENCE
 
@@ -1975,8 +2212,13 @@ class NOTCAM(Instrument):
         show_plots=False,
     ):
         """
+        NOTCAM override of generic flat field procedure.
+
         For NOTcam, differential flats are used, so we do some
         pre-processing before doing the "standard" master flat creation.
+
+        See the make_master_flat method from `Instrument` class for parameter 
+        documentation.
         """
 
         for key, value in flat_setup.items():
@@ -2004,8 +2246,8 @@ class NOTCAM(Instrument):
 
                 try:
                     data = hdul[self.data_hdu_extension].data
-                    exptime = get_header_value(hdul, self.exposure_time_keyword, logger)
-                    object_name = get_header_value(hdul, self.object_keyword, logger)
+                    exptime = self.get_header_value(hdul, self.exposure_time_keyword, logger)
+                    object_name = self.get_header_value(hdul, self.object_keyword, logger)
 
                 except Exception:
                     logger.error(
@@ -2029,6 +2271,7 @@ class NOTCAM(Instrument):
             order = np.argsort(meds)[::-1]  # indices for descending medians
 
             # reorder filenames
+           
             value["files"] = [value["files"][i] for i in order]
             # assume raw_data_list already aligns with value["files"]
             raw_data_list = [raw_data_list[i] for i in order]
@@ -2183,6 +2426,8 @@ class NOTCAM(Instrument):
             # update the flat setup to point to the newly written differential files
             value["files"] = diff_file_names
 
+        # now handle the diff flats as regular flats    
+
         return super().make_master_flat(
             input_dir,
             output_dir,
@@ -2227,6 +2472,20 @@ class NOTCAM(Instrument):
         )
 
     def subtract_sky(self, output_path, logger, object_setup=None, show_plots=False):
+        """
+        NOTCAM override of generic sky subtraction procedure.
+
+        For NOTcam, the object names are always altered such that for every
+        dither, the name will be "object n", where n is the dither number.
+        Therefore, the object_setup is initially mapped "wrong",
+        and we need to remap it, such so it is only sorted by object name.
+
+        Also, this method identifies off-beam sky frames based on the NOTCAM file
+        naming convention and attaches them to the relevant science objects in 
+        the object setup, so they can be used for sky subtraction.
+
+        See the subtract_sky method from `Instrument` class for parameter documentation.
+        """
         # load the object setup from disk if not provided
         if object_setup is None:
             object_setup_path = os.path.join(output_path, "object_setup.json")
@@ -2239,11 +2498,6 @@ class NOTCAM(Instrument):
                 )
                 logger.error("Run the reduction first")
                 return
-
-        # For NOTcam, the object names are always altered such that for every
-        # dither, the name will be "object n", where n is the dither number.
-        # Therefore, the object_setup is initially mapped "wrong",
-        # and we need to remap it, such so it is only sorted by object name
 
         logger.info("Remapping object setup for NOTCAM to group by object name only")
 
@@ -2279,7 +2533,7 @@ class NOTCAM(Instrument):
                     sky_files = object_setup[key][object_name]["files"]
 
                     for file in sky_files:
-
+                        # following NOTCAM file naming standard
                         numerical_part = int(file[4:10])
 
                         prev_numerical = numerical_part - 1
