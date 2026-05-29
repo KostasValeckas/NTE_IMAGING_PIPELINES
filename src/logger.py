@@ -2,6 +2,12 @@ import logging
 from colorama import Fore, Style, init
 import pathlib
 
+"""
+A logging module that get initialized during every reduction run. A log 
+file is created and stored in the directory of the raw data, with the name 
+of the raw_data_directory_pipeline.log Will be overrriden on repeated executions.
+"""
+
 
 def init_logger(path):
 
