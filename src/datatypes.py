@@ -17,6 +17,10 @@ class ImageType(Enum):
 
 @dataclass
 class FitsHeaderEntry:
+    """
+    Currently not used, but the idea could be used for refactoring the 
+    `instruments` module. Leaving here for now.
+    """
     key: str
     value: Optional[str] = None
     comment: Optional[str] = None

@@ -2,7 +2,6 @@ from dataclasses import dataclass
 import json
 from typing import Optional
 import os
-from enum import Enum
 from datatypes import ImageType
 from ccdproc import combine, CCDData, subtract_dark, subtract_bias, flat_correct
 from IO import open_fits_file, write_frame, read_frame, get_header_value
@@ -11,12 +10,62 @@ import numpy as np
 import astropy.units as u
 from astropy.io import fits
 from datetime import datetime
-import re
 import astroscrappy
 
 
 @dataclass
 class Detector:
+    """
+    Dataclass for storing mappings for detector header keywords and relevant 
+    reduction parameters.
+
+    For header values, the mapping is a tuple where the last entry in the 
+    tuple is an integer representing the HDU extension where the keyword can be found. 
+
+    For example, if the detector gain keyword is "GAIN" in HDU[1], then the 
+    entry should be: ("GAIN", 1)
+
+    Header keywords set as optional but the pipeline will likely crash if these 
+    are left undefined.
+
+    Paramters
+    ---------
+    gain: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for gain value in FITS header.
+
+    read_noise: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for read noise value in FITS header.
+
+    saturation_level: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for saturation level in FITS header.
+
+    dark_current: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for dark current in FITS header.
+
+    pixel_scale: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for pixel scale in FITS header.
+    
+    field_of_view: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for field of view in FITS header.
+
+    window_keyword: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for window setting in FITS header.
+
+    bin_x_keyword: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for binning in X direction in FITS header.
+
+    bin_y_keyword: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for binning in Y direction in FITS header.
+
+    bpm_median_threshold: Optional[float]:
+        Threshold in terms of median deviation for identifying bad pixels when 
+        creating/updating the bad pixel map. Pixels that deviate from the 
+        median by more than this threshold (in units of median) will be flagged 
+        as bad pixels. Default is 0.2, meaning pixels that deviate from the 
+        median by more than 20% will be flagged as bad.
+        
+
+    """
     gain: Optional[tuple[str, int]] = None
     read_noise: Optional[tuple[str, int]] = None
     saturation_level: Optional[tuple[str, int]] = None
@@ -31,14 +80,77 @@ class Detector:
 
 @dataclass
 class Telescope:
+    """
+    Dataclass for describing the Telescope. Currently not used but leaving here 
+    as it might be useful for later developtment.
+    """
     name: Optional[tuple[str, int]] = None
-    aperture: Optional[tuple[str, int]] = None
-    focal_length: Optional[tuple[str, int]] = None
-    location: Optional[tuple[str, int]] = None
-
 
 class Instrument:
-    def __init__(
+    """
+    Dataclass for describing the Instrument. Contains information about the
+    detector, telescope, and FITS keyword mappings used in the data reduction
+    pipeline. 
+
+    **Not to be used by itself but to be inherited by the instrument implementations**.
+
+    FITS keyword mappings are stored as tuples of (keyword, extension) where the
+    last entry in the tuple is an integer representing the HDU extension where the keyword can be found.
+    For example, if the filter keyword is "FILTER" in HDU[0], then the entry should be: ("FILTER", 0)
+
+    Parameters set as optional for flexibility but the pipeline will likely crash
+    if some of them are not defined. 
+
+    Paramters
+    ---------
+    name: Optional[str]
+        Name of the instrument.
+
+    detector: Optional[Detector]
+        Detector dataclass instance containing information about the detector and relevant FITS keyword mappings.
+
+    telescope: Optional[Telescope]
+        Telescope dataclass instance (currently not used).
+
+    filter_keyword: Optional[tuple[list[str], int]]
+        Tuple of (list, extension). The list should contain all header keywords
+        that correspond to the different filter wheels. Can be of length 1.
+
+    obsmode_keyword: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for observation mode in FITS header. 
+        This is used to help determine the image type (bias, dark, flat, science)
+        of the frames.
+
+        Used on `match_image_type` method.
+
+    imaging_obsmode_keyword: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for imaging observation mode in FITS header. 
+        This is used to help determine the image type (bias, dark, flat, science)
+        of the frames. Used in extension to obsmode_keyword for more specific 
+        identification of imaging frames.
+
+        Used on `match_image_type` method.
+
+    imagetype_keyword: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for image type in FITS header. This is used 
+        to help determine the image type (bias, dark, flat, science) of the frames.
+
+        Used on `match_image_type` method.
+
+    bias_keyword: Optional[list[str]]
+        List of keywords matching with bias frames. Used on `match_image_type` method.
+
+    dark_keyword: Optional[list[str]]
+        List of keywords matching with dark frames. Used on `match_image_type` method.
+
+    flat_keyword: Optional[list[str]]
+        List of keywords matching with flat frames. Used on `match_image_type` method.
+
+    science_keyword: Optional[list[str]]
+        List of keywords matching with science frames. Used on `match_image_type` method.
+
+    """
+    def __init__(   
         self,
         name: Optional[str] = None,
         detector: Optional[Detector] = None,
