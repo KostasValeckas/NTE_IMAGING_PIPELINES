@@ -34,6 +34,16 @@ class Processed_frame:
     bpm : numpy.ndarray
         The bad pixel mask as a 2D numpy array, where bad pixels are marked 
         with 1 and good pixels with 0.
+
+    Attributes
+    ----------
+    hdul : astropy.io.fits.HDUList
+        The HDUList object containing the FITS header and data.
+    data : ccdproc.CCDData
+        The image data wrapped in a CCDData object, with units of ADU.
+    bpm : numpy.ndarray
+        The bad pixel mask as a 2D numpy array, where bad pixels are marked 
+        with 1 and good pixels with 0.
     """
     def __init__(self, hdul, data, bpm):
 
