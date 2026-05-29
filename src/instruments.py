@@ -272,6 +272,10 @@ class Instrument:
 
         show_plots: bool, optional
             Whether to display the bad pixel map plot. Default is False.
+
+        Returns
+        -------
+        combined_bad_pixel_mask: 2D boolean Numpy Array
         """
 
         n_median_deviation = self.detector.bpm_median_threshold or 0.2
@@ -380,6 +384,52 @@ class Instrument:
         bad_pixel_masks=None,
         show_plots=False,
     ):
+        """
+        Master method for creating a master bias frame for each setup defined in the `bias_setup` dictionary.
+
+        The frame is created by 2-sigma clipped median combination.
+
+        Both writes, returns and stores (heap) the master frames and bad pixel masks.
+
+        Parameters
+        ----------
+        input_dir: str
+            Directory where the raw bias frames are located.
+
+        output_dir: str
+            Directory where the master bias frames and diagnostic plots will be saved.
+
+        bias_setup: dict
+            Dictionary defining the bias frames to be combined for each setup.
+            The keys should be unique identifiers for each setup 
+            (e.g., "window1_bin1x1"), and the values should be dictionaries containing:
+                - "files": list of filenames corresponding to the bias frames for that setup
+                - "window": window setting for that setup
+                - "bin_x": binning in X direction for that setup
+                - "bin_y": binning in Y direction for that setup
+
+        logger: `logger.logger` instance
+            Logger object.
+
+        bad_pixel_masks: dict, optional
+            Dictionary of existing bad pixel masks for each setup.
+
+        show_plots: bool, optional
+            Whether to display the diagnostic plots during master bias creation. 
+            Default is False.
+
+        Returns
+        -------
+        master_biases: dict
+            Dictionary of master bias frames for each setup, where the keys are 
+            the same as in `bias_setup` and the values are the master bias frames 
+            as CCDData objects.
+
+        bad_pixel_masks: dict
+            Updated dictionary of bad pixel masks for each setup after
+            processing the bias frames.
+        
+        """
 
         if bad_pixel_masks is None:
             bad_pixel_masks = {}
@@ -512,8 +562,67 @@ class Instrument:
         skip_bias_correction=False,
     ):
         """
-        The bad pixel masks are assumed to be the one used from the dark and
-        bias configurations only.
+        Master method for creating master flat frames for each setup 
+        defined in the `flat_setup` dictionary.
+
+        First corrects for dark current and bias (optional), estimates bad pixels, 
+        normalizes the frames, and then creates the master flat by 2-sigma clipped 
+        median combination.
+
+        Both writes, returns and stores (heap) the master frames and bad pixel masks.
+
+        Parameters
+        ----------
+        input_dir: str
+            Directory where the raw flat frames are located.
+
+        output_dir: str
+            Directory where the master flat frames and diagnostic plots will be saved.
+
+        flat_setup: dict
+            Dictionary defining the flat frames to be combined for each setup.
+            The keys should be unique identifiers for each setup 
+            (e.g., "window1_bin1x1_filterR"), and the values should be dictionaries containing:
+                - "files": list of filenames corresponding to the flat frames for that setup
+                - "window": window setting for that setup
+                - "bin_x": binning in X direction for that setup
+                - "bin_y": binning in Y direction for that setup
+                - "filter": filter(s) name for that setup
+
+        logger: `logger.logger` instance
+            Logger object.
+
+        bad_pixel_masks: dict, optional
+            Dictionary of existing bad pixel masks for each setup.
+
+        dark_frames: dict, optional
+            Dictionary of master dark frames for each setup, where the keys are 
+            the same as in `bias_setup`.
+
+        bias_frames: dict, optional
+            Dictionary of master bias frames for each setup, where the keys are 
+            the same as in `bias_setup`.
+
+        science_to_bias_map: dict, optional
+            Dictionary mapping the flat setup keys to the corresponding bias setup keys.
+
+        show_plots: bool, optional
+            Whether to display the diagnostic plots during master flat creation.
+            Default is False.
+
+        skip_dark_correction: bool, optional
+            Whether to skip dark correction for the flat frames. Default is False.
+
+        skip_bias_correction: bool, optional
+            Whether to skip bias correction for the flat frames. Default is False.
+
+        Returns
+        -------
+        master_flats: dict
+            Dictionary of master flat frames for each setup.
+
+        bad_pixel_masks_science: dict
+            Dictionary of bad pixel masks for each science setup.
         """
 
         bad_pixel_masks_science = {}
