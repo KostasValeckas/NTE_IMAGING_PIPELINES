@@ -149,6 +149,21 @@ class Instrument:
     science_keyword: Optional[list[str]]
         List of keywords matching with science frames. Used on `match_image_type` method.
 
+    data_hdu_extension: Optional[int]
+        Integer representing the HDU extension where the image data can be found in the FITS files. Default is 0.
+
+    object_keyword: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for object name in FITS header.
+
+    exposure_time_keyword: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for exposure time in FITS header.
+
+    RA_keyword: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for right ascension in FITS header.
+
+    DEC_keyword: Optional[tuple[str, int]]
+        Tuple of (keyword, extension) for declination in FITS header.
+
     """
     def __init__(   
         self,
@@ -205,9 +220,20 @@ class Instrument:
         self.DEC_keyword = DEC_keyword if DEC_keyword is not None else (None, 0)
 
     def match_image_type(self, hdul) -> Optional[ImageType]:
+        """
+        Base implementation: intended to be overridden by subclasses.
 
-        # Base implementation: intended to be overridden by subclasses.
-        # Return None to indicate "no determination" at this level.
+        Left completely blank to have full freedom per instrument basis.
+
+        In the instrument specific implementations, should return a 
+        `datatypes.ImageType` enum value.
+
+        Parameters
+        ----------
+        hdul : astropy.io.fits.HDUList
+            The HDUList object containing the FITS header and data.
+        """
+
         return None
 
     def update_bad_pixel_map(
@@ -219,6 +245,34 @@ class Instrument:
         bad_pixel_mask=None,
         show_plots=False,
     ):
+        
+        """
+        Updates (or creates) a bad pixel map based on sigma clipping the frame.
+        Pixels that deviate significantly from the median are marked as bad. The 
+        threshold is set in the `Detector` dataclass as `bpm_median_threshold`, 
+        which is in units of median deviation.
+
+        Parameters
+        ----------
+        master_frame : 2D Numpy Array
+            The frame to estimate bad pixels of.
+
+        logger: `logger.logger` instance
+            Logger object.
+
+        output_dir: str
+            Directory to save the bad pixel map plot.
+
+        key: str
+            Key corresponding to the current setup, used for naming the output plot.
+
+        bad_pixel_mask: 2D boolean Numpy Array, optional
+            Existing bad pixel mask to combine with. If None, a new mask will be created. 
+            Bad pixels should be marked as True and good pixels as False.
+
+        show_plots: bool, optional
+            Whether to display the bad pixel map plot. Default is False.
+        """
 
         n_median_deviation = self.detector.bpm_median_threshold or 0.2
 
