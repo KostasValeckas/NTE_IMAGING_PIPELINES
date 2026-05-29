@@ -1,9 +1,0 @@
-2026-02-20 12:16:36 - PyLongslit - INFO - logger.py:66 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/.log.
-2026-02-20 12:23:25 - PyLongslit - INFO - logger.py:66 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/.log.
-2026-02-20 12:23:25 - PyLongslit - INFO - reduction.py:64 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
-2026-02-20 12:23:48 - NTE_IMAGING_PIPELINE - INFO - logger.py:66 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/.log.
-2026-02-20 12:23:48 - NTE_IMAGING_PIPELINE - INFO - reduction.py:64 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
-2026-02-20 12:24:11 - NTE_IMAGING_PIPELINE - INFO - logger.py:66 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/.log.
-2026-02-20 12:24:11 - NTE_IMAGING_PIPELINE - INFO - reduction.py:64 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
-2026-02-20 12:45:09 - NTE_IMAGING_PIPELINE - INFO - logger.py:67 - Logger initialized. Log will be saved in /home/kostas/Documents/MASTERS/NTE_IMAGING_PIPELINES/.log.
-2026-02-20 12:45:09 - NTE_IMAGING_PIPELINE - INFO - reduction.py:68 - Sorted files: 0 bias, 0 dark, 0 flat, 0 science
