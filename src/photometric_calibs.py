@@ -33,7 +33,9 @@ class Photometric_parser:
 
         SCRIPT_DIR = Path(__file__).resolve().parent
 
-        self.sex_param = str(SCRIPT_DIR / ".." / "source_extractor_files" / "output.param") # uniform for all instruments
+        self.sex_param = str(
+            SCRIPT_DIR / ".." / "source_extractor_files" / "output.param"
+        )  # uniform for all instruments
 
     def determine_configurations(self):
         # TODO might not need this - keep for API
@@ -270,8 +272,6 @@ class Photometric_parser:
 
         instrumental_mag = -2.5 * np.log10(R)
 
-
-
         sdss_mag = matched_sdss[filter_string]
 
         zp_values = sdss_mag - instrumental_mag
@@ -288,9 +288,13 @@ class Photometric_parser:
 
         zp = np.median(zp_values)
 
-        zp_sigma = np.std(zp_values) / np.sqrt(len(zp_values)) if len(zp_values) > 1 else 0.0
+        zp_sigma = (
+            np.std(zp_values) / np.sqrt(len(zp_values)) if len(zp_values) > 1 else 0.0
+        )
 
-        self.logger.info(f"Median Zeropoint: {zp} ± {zp_sigma:.3f} (std error of the mean)")
+        self.logger.info(
+            f"Median Zeropoint: {zp} ± {zp_sigma:.3f} (std error of the mean)"
+        )
 
         plt.hist(zp_values, bins=len(zp_values), color="C0", alpha=0.8)
         plt.axvline(zp, color="C1", linestyle="--", label=f"median = {zp:.3f}")
@@ -322,7 +326,10 @@ class Photometric_parser:
         R_all = flux_auto_all / exptime
         all_good_mags = -2.5 * np.log10(R_all)
         calibrated_mag = all_good_mags + zp
-        calibrated_mag_error = np.sqrt(((-2.5 * (flux_auto_err_all/exptime))/(R_all * np.log(10)))**2 + zp_sigma**2)
+        calibrated_mag_error = np.sqrt(
+            ((-2.5 * (flux_auto_err_all / exptime)) / (R_all * np.log(10))) ** 2
+            + zp_sigma**2
+        )
 
         # keep RA/DEC in degrees on the full table for compatibility
         data_table["RA"] = ra
@@ -338,8 +345,18 @@ class Photometric_parser:
         )
 
         out_table = Table(
-            [ra_str[valid], dec_str[valid], calibrated_mag[valid], calibrated_mag_error[valid]],
-            names=["RA", "DEC", f"MAG_CAL_{filter_string}", f"MAG_CAL_ERR_{filter_string}"],
+            [
+                ra_str[valid],
+                dec_str[valid],
+                calibrated_mag[valid],
+                calibrated_mag_error[valid],
+            ],
+            names=[
+                "RA",
+                "DEC",
+                f"MAG_CAL_{filter_string}",
+                f"MAG_CAL_ERR_{filter_string}",
+            ],
         )
 
         out_path = os.path.join(
@@ -494,9 +511,13 @@ class Photometric_parser:
             return -1
 
         zp = np.median(zp_values)
-        zp_sigma = np.std(zp_values) / np.sqrt(len(zp_values)) if len(zp_values) > 1 else 0.0
+        zp_sigma = (
+            np.std(zp_values) / np.sqrt(len(zp_values)) if len(zp_values) > 1 else 0.0
+        )
         self.logger.info(f"Pan-STARRS Zeropoint values: {zp_values}")
-        self.logger.info(f"Pan-STARRS Median Zeropoint: {zp:.3f} ± {zp_sigma:.3f} (std error of the mean)")
+        self.logger.info(
+            f"Pan-STARRS Median Zeropoint: {zp:.3f} ± {zp_sigma:.3f} (std error of the mean)"
+        )
 
         # plot histogram for QA
         plt.hist(zp_values, bins=max(6, min(50, len(zp_values))), color="C0", alpha=0.8)
@@ -532,7 +553,14 @@ class Photometric_parser:
         all_flux_auto_err = data_table["FLUXERR_AUTO"][good_table]
         all_good_mags = -2.5 * np.log10(all_flux_auto / exptime)
         calibrated_mag[good_table] = all_good_mags + zp
-        calibrated_mag_error[good_table] = np.sqrt(((-2.5 * (all_flux_auto_err/exptime))/((all_flux_auto/exptime) * np.log(10)))**2 + zp_sigma**2)
+        calibrated_mag_error[good_table] = np.sqrt(
+            (
+                (-2.5 * (all_flux_auto_err / exptime))
+                / ((all_flux_auto / exptime) * np.log(10))
+            )
+            ** 2
+            + zp_sigma**2
+        )
 
         print(f"Calibrated magnitudes (first 10): {calibrated_mag[:10]}")
 
@@ -548,7 +576,12 @@ class Photometric_parser:
         valid = np.isfinite(calibrated_mag)
 
         out_table = Table(
-            [ra_str[valid], dec_str[valid], calibrated_mag[valid], calibrated_mag_error[valid]],
+            [
+                ra_str[valid],
+                dec_str[valid],
+                calibrated_mag[valid],
+                calibrated_mag_error[valid],
+            ],
             names=["RA", "DEC", f"MAG_CAL_{mag_col}", f"MAG_CAL_ERR_{mag_col}"],
         )
         out_path = os.path.join(
@@ -750,11 +783,15 @@ class Photometric_parser:
 
         zp = np.median(zp_values)
 
-        zp_sigma = np.std(zp_values) / np.sqrt(len(zp_values)) if len(zp_values) > 1 else 0.0
+        zp_sigma = (
+            np.std(zp_values) / np.sqrt(len(zp_values)) if len(zp_values) > 1 else 0.0
+        )
 
         self.logger.info(f"2MASS Zeropoint values: {zp_values}")
 
-        self.logger.info(f"2MASS Median Zeropoint: {zp:.3f} ± {zp_sigma:.3f} (std error of the mean)")
+        self.logger.info(
+            f"2MASS Median Zeropoint: {zp:.3f} ± {zp_sigma:.3f} (std error of the mean)"
+        )
 
         # QA plot
 
@@ -810,12 +847,15 @@ class Photometric_parser:
 
         all_good_mags = -2.5 * np.log10(all_flux_auto / exptime)
 
-
-
-
-
         calibrated_mag[good_table] = all_good_mags + zp
-        calibrated_mag_error[good_table] = np.sqrt(((-2.5 * (all_flux_auto_err/exptime))/((all_flux_auto/exptime) * np.log(10)))**2 + zp_sigma**2)
+        calibrated_mag_error[good_table] = np.sqrt(
+            (
+                (-2.5 * (all_flux_auto_err / exptime))
+                / ((all_flux_auto / exptime) * np.log(10))
+            )
+            ** 2
+            + zp_sigma**2
+        )
 
         # attach RA/DEC in degrees and write out compact table
 
@@ -834,8 +874,18 @@ class Photometric_parser:
         valid = np.isfinite(calibrated_mag)
 
         out_table = Table(
-            [ra_str[valid], dec_str[valid], calibrated_mag[valid], calibrated_mag_error[valid]],
-            names=["RA", "DEC", f"MAG_CAL_{filter_string}", f"MAG_CAL_ERR_{filter_string}"],
+            [
+                ra_str[valid],
+                dec_str[valid],
+                calibrated_mag[valid],
+                calibrated_mag_error[valid],
+            ],
+            names=[
+                "RA",
+                "DEC",
+                f"MAG_CAL_{filter_string}",
+                f"MAG_CAL_ERR_{filter_string}",
+            ],
         )
 
         out_path = os.path.join(
@@ -873,7 +923,6 @@ class Photometric_parser:
                         f"Object {object_name} in {obj_key} marked for redo of sky subtraction. Will trace on non-sky-subtracted frames."
                     )
 
-
                 filters = info.get("filter", [])
 
                 # remove all entries that are not "Open"
@@ -897,7 +946,6 @@ class Photometric_parser:
                 )
 
                 self.stripped_filter_name = filters[0].split("_", 1)[0].strip()
- 
 
                 files = info.get("files", [])
 
@@ -910,15 +958,14 @@ class Photometric_parser:
                     )
                     continue
 
-
                 exptimes = []
 
                 for file in files:
 
-                    file_path = os.path.join(
-                        self.reduced_dir, "sky_subtracted_" + file
-                    ) if not redo_skysub else os.path.join(
-                        self.reduced_dir, "reduced_science_" + file
+                    file_path = (
+                        os.path.join(self.reduced_dir, "sky_subtracted_" + file)
+                        if not redo_skysub
+                        else os.path.join(self.reduced_dir, "reduced_science_" + file)
                     )
 
                     hdul = open_fits_file(file_path, self.logger)
@@ -926,8 +973,11 @@ class Photometric_parser:
                     data = hdul[1].data
                     bpm = hdul[2].data
 
-
-                    exptimes.append(get_header_value(hdul, self.instrument.exposure_time_keyword, self.logger))
+                    exptimes.append(
+                        get_header_value(
+                            hdul, self.instrument.exposure_time_keyword, self.logger
+                        )
+                    )
 
                     y_size, x_size = bpm.shape
                     x_start = int(x_size * self.mask_x_fraction)
@@ -956,11 +1006,14 @@ class Photometric_parser:
 
                     cat_filename = os.path.join(
                         self.reduced_dir,
-                        "sky_subtracted_" + file.replace(".fits", ".cat") if not redo_skysub else
-                        "reduced_science_" + file.replace(".fits", ".cat")
+                        (
+                            "sky_subtracted_" + file.replace(".fits", ".cat")
+                            if not redo_skysub
+                            else "reduced_science_" + file.replace(".fits", ".cat")
+                        ),
                     )
 
-                    #TODO assumes data is in extension [1] - make more flexible
+                    # TODO assumes data is in extension [1] - make more flexible
                     cmd = [
                         "sex",
                         "-c",
@@ -971,7 +1024,7 @@ class Photometric_parser:
                         "-CATALOG_NAME",
                         cat_filename,
                         "-PARAMETERS_NAME",
-                        self.sex_param
+                        self.sex_param,
                     ]
 
                     self.run_sex(cmd)
@@ -986,22 +1039,17 @@ class Photometric_parser:
                     self.plot_apertures(masked_frame, good_objects, file)
 
                     if not skip_WCS_refinement:
-                        
 
                         # now run scamp right away
-                        scamp_cmd = [
-                            "scamp",
-                            cat_filename,
-                            "-c",
-                            self.scamp_config
-                        ]
-    
+                        scamp_cmd = ["scamp", cat_filename, "-c", self.scamp_config]
+
                         self.run_scamp(scamp_cmd)
 
+                # wcs information refined - ready to stack
 
-                # wcs information refined - ready to stack    
-
-                self.final_result_name = f"{object_name}_{self.stripped_filter_name}.fits"
+                self.final_result_name = (
+                    f"{object_name}_{self.stripped_filter_name}.fits"
+                )
                 final_weights_filename = (
                     f"{object_name}_{self.stripped_filter_name}_weights.fits"
                 )
@@ -1017,8 +1065,6 @@ class Photometric_parser:
 
                 # TODO: for now just testing if warping a single image makes sense for easier code logic
 
-       
-
                 file_list_name = os.path.join(
                     self.reduced_dir, f"{object_name}_files.list"
                 )
@@ -1029,8 +1075,12 @@ class Photometric_parser:
                     for file in files:
                         f.write(
                             os.path.join(
-                                self.reduced_dir, "sky_subtracted_" + file + "[1]" if not redo_skysub else
-                                "reduced_science_" + file + "[1]"
+                                self.reduced_dir,
+                                (
+                                    "sky_subtracted_" + file + "[1]"
+                                    if not redo_skysub
+                                    else "reduced_science_" + file + "[1]"
+                                ),
                             )
                             + "\n"
                         )
@@ -1054,15 +1104,14 @@ class Photometric_parser:
                     "-SUBTRACT_BACK",
                     "N" if not redo_skysub else "Y",
                     "-BACK_TYPE",
-                    "AUTO"
+                    "AUTO",
                 ]
 
                 self.run_swarp(swarp_cmd)
 
-                # this is a hack to move the .head file from cwd to 
+                # this is a hack to move the .head file from cwd to
                 # the reduced directory, as there is no option in the config
                 # file for this
-
 
                 final_result_path = os.path.join(
                     self.reduced_dir, self.final_result_name
@@ -1134,14 +1183,10 @@ class Photometric_parser:
                     vmax=np.percentile(masked_final.compressed(), 95),
                 )
                 plt.colorbar()
-                plt.title(
-                    f"Final stacked image for {object_name} with masked pixels."
-                )
+                plt.title(f"Final stacked image for {object_name} with masked pixels.")
                 plt.xlabel("X Pixel")
                 plt.ylabel("Y Pixel")
-                save_path = os.path.join(
-                    self.reduced_dir, f"final_{object_name}.png"
-                )
+                save_path = os.path.join(self.reduced_dir, f"final_{object_name}.png")
                 plt.savefig(save_path)
                 if self.show_plots:
                     plt.show()
@@ -1169,19 +1214,23 @@ class Photometric_parser:
                     "-BACK_TYPE",
                     "MANUAL",
                     "-BACK_VALUE",
-                    "0.0"
+                    "0.0",
                 ]
 
                 self.run_sex(cmd)
 
-                # this is a hack to move the .head file from cwd to 
+                # this is a hack to move the .head file from cwd to
                 # the reduced directory, as there is no option in the config
                 # file for this
 
                 cwd = os.getcwd()
 
-                head_file_path = os.path.join(cwd, f"{object_name}_{self.stripped_filter_name}.head")
-                new_head_file_path = os.path.join(self.reduced_dir, os.path.basename(head_file_path))
+                head_file_path = os.path.join(
+                    cwd, f"{object_name}_{self.stripped_filter_name}.head"
+                )
+                new_head_file_path = os.path.join(
+                    self.reduced_dir, os.path.basename(head_file_path)
+                )
                 os.rename(head_file_path, new_head_file_path)
 
                 with fits.open(self.final_cat_filename) as hdul_table:
@@ -1191,7 +1240,7 @@ class Photometric_parser:
 
                 self.plot_apertures(masked_final, good_objects, file)
 
-                self.calculate_photometry(obj_key, object_name)     
+                self.calculate_photometry(obj_key, object_name)
 
 
 class ALFOSC_parser(Photometric_parser):
@@ -1200,12 +1249,13 @@ class ALFOSC_parser(Photometric_parser):
 
         SCRIPT_DIR = Path(__file__).resolve().parent
 
-        self.sex_config = str(SCRIPT_DIR / ".." / "source_extractor_files" / "alfosc.sex")
+        self.sex_config = str(
+            SCRIPT_DIR / ".." / "source_extractor_files" / "alfosc.sex"
+        )
 
         self.scamp_config = str(SCRIPT_DIR / ".." / "scamp_files" / "alfosc.conf")
 
         self.swarp_config = str(SCRIPT_DIR / ".." / "swarp_files" / "alfosc.swarp")
-
 
         # TODO expland with more filters as needed
         self.filter_query_mapping_SDSS = {
@@ -1226,19 +1276,17 @@ class ALFOSC_parser(Photometric_parser):
         self.mask_x_fraction = 0.1
         self.mask_y_fraction = 0.1
 
-        super().__init__(reduced_dir, logger, object_setup, instrument, show_plots=show_plots)
+        super().__init__(
+            reduced_dir, logger, object_setup, instrument, show_plots=show_plots
+        )
 
     def calculate_photometry(self, obj_key, object_name):
-
-        
 
         if self.stripped_filter_name not in self.filter_query_mapping_SDSS:
             self.logger.error(
                 f"Filter {self.stripped_filter_name} not implemented for SDSS calibration. Implemented filters: {list(self.filter_query_mapping_SDSS.keys())}"
             )
             return
-        
-
 
         query_result = self.query_SDSS(
             self.final_cat_filename,
@@ -1256,7 +1304,6 @@ class ALFOSC_parser(Photometric_parser):
 
             return
 
-        
         else:
             self.logger.error(
                 f"Photometric calibration failed for {object_name} in {obj_key} using SDSS."
@@ -1269,7 +1316,7 @@ class ALFOSC_parser(Photometric_parser):
                     f"Filter {self.stripped_filter_name} not implemented for PanSTARRS calibration. Implemented filters: {list(self.filter_query_mapping_PanSTARRS.keys())}"
                 )
                 return
-            
+
             self.logger.info(
                 f"Attempting photometric calibration for {object_name} in {obj_key} using PanSTARRS."
             )
@@ -1289,12 +1336,13 @@ class NOTCAM_parser(Photometric_parser):
 
         SCRIPT_DIR = Path(__file__).resolve().parent
 
-        self.sex_config = str(SCRIPT_DIR / ".." / "source_extractor_files" / "notcam.sex")
+        self.sex_config = str(
+            SCRIPT_DIR / ".." / "source_extractor_files" / "notcam.sex"
+        )
 
         self.scamp_config = str(SCRIPT_DIR / ".." / "scamp_files" / "notcam.conf")
 
         self.swarp_config = str(SCRIPT_DIR / ".." / "swarp_files" / "notcam.swarp")
-
 
         self.filter_query_mapping_2MASS = {
             "J": ["Jmag", "e_Jmag"],
@@ -1306,8 +1354,9 @@ class NOTCAM_parser(Photometric_parser):
         self.mask_x_fraction = 0.01
         self.mask_y_fraction = 0.01
 
-
-        super().__init__(reduced_dir, logger, object_setup, instrument, show_plots=show_plots)
+        super().__init__(
+            reduced_dir, logger, object_setup, instrument, show_plots=show_plots
+        )
 
     def calculate_photometry(self, obj_key, object_name):
 

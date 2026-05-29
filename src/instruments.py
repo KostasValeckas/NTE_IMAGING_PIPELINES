@@ -895,42 +895,60 @@ class Instrument:
         with open(object_setup_path, "w") as f:
             json.dump(object_setup, f)
 
-
         # CRR loop - for any objects with long exposure times and less than or 3 exposures
-        
+
         for key, value in object_setup.items():
             for object_name, object_value in value.items():
                 if len(object_value["files"]) <= 3:
                     # open first file and check exposure time
                     file = object_value["files"][0]
-                    frame = read_frame(output_dir, f"reduced_science_{file}", self, logger)
-                    exptime = get_header_value(frame.hdul, self.exposure_time_keyword, logger)
+                    frame = read_frame(
+                        output_dir, f"reduced_science_{file}", self, logger
+                    )
+                    exptime = get_header_value(
+                        frame.hdul, self.exposure_time_keyword, logger
+                    )
 
-                    #TODO hardcoded exptime as threshold, make configurable
+                    # TODO hardcoded exptime as threshold, make configurable
                     if exptime >= 300:
                         logger.info(
                             f"Object {object_name} in setup {key} has only {len(object_value['files'])} exposures and long exposure time of {exptime} seconds. Applying cosmic ray rejection..."
                         )
-                        
 
                         for file in object_value["files"]:
-                            frame = read_frame(output_dir, f"reduced_science_{file}", self, logger)
-        
+                            frame = read_frame(
+                                output_dir, f"reduced_science_{file}", self, logger
+                            )
 
                             hdul = frame.hdul.copy()
-                            data_extension = get_header_value(frame.hdul, self.data_extension_keyword, logger)
-                            gain = get_header_value(frame.hdul, self.gain_keyword, logger)
-                            rdnoise = get_header_value(frame.hdul, self.read_noise_keyword, logger)
-                            
-                            astroscrappy.detect_cosmic_rays(frame.data.data, gain=gain, readnoise=rdnoise)
+                            data_extension = get_header_value(
+                                frame.hdul, self.data_extension_keyword, logger
+                            )
+                            gain = get_header_value(
+                                frame.hdul, self.gain_keyword, logger
+                            )
+                            rdnoise = get_header_value(
+                                frame.hdul, self.read_noise_keyword, logger
+                            )
+
+                            astroscrappy.detect_cosmic_rays(
+                                frame.data.data, gain=gain, readnoise=rdnoise
+                            )
 
                             # write results back to disk and update header
-                            frame.data.data = astroscrappy.get_crr_result(frame.data.data)
-        
-                            hdul[data_extension].header["CRRAPPLY"] = (True, "Indicates whether cosmic ray rejection was applied")
+                            frame.data.data = astroscrappy.get_crr_result(
+                                frame.data.data
+                            )
+
+                            hdul[data_extension].header["CRRAPPLY"] = (
+                                True,
+                                "Indicates whether cosmic ray rejection was applied",
+                            )
 
                             frame.hdul = hdul
-                            write_frame(output_dir, f"reduced_science_{file}", frame, logger)
+                            write_frame(
+                                output_dir, f"reduced_science_{file}", frame, logger
+                            )
 
                     else:
                         logger.info(
@@ -987,7 +1005,9 @@ class Instrument:
                 frame_median = self.random_median_calc(frame.data, bpm=bpm)
                 skysubbed_frame = frame.data.data - frame_median
 
-                sky_subtracted_median = self.random_median_calc(skysubbed_frame, bpm=bpm)
+                sky_subtracted_median = self.random_median_calc(
+                    skysubbed_frame, bpm=bpm
+                )
 
                 plt.close()
 
@@ -1078,7 +1098,10 @@ class Instrument:
         data = [skysubtracted_A, skysubtracted_B]
         hduls = [frame_A_hdul, frame_B_hdul]
 
-        medians = [self.random_median_calc(frame, bpm=bpm) for frame, bpm in zip(data, [frame_A_bpm, frame_B_bpm])]
+        medians = [
+            self.random_median_calc(frame, bpm=bpm)
+            for frame, bpm in zip(data, [frame_A_bpm, frame_B_bpm])
+        ]
 
         # plot and write
 
@@ -1145,7 +1168,7 @@ class Instrument:
             # build the sky-stack from either sky or science frames
 
             sky_frame_list = value["sky_frames"] if skyframes else value["files"]
-            
+
             # used for later writing
             hdul_copy = None
 
@@ -1179,7 +1202,7 @@ class Instrument:
                     )
 
                     sky_cube.append(scaled_frame)
-                
+
                 bpm_sky_cube.append(frame.bpm.copy() if frame.bpm is not None else None)
 
                 # take a copy of the middle hdul for writing master
@@ -1198,14 +1221,15 @@ class Instrument:
                 sigma_clip_high_thresh=2,
             )
 
-            sky_bpm = np.sum(bpm_sky_cube, axis=0) > 0 if any(bpm is not None for bpm in bpm_sky_cube) else None
-
+            sky_bpm = (
+                np.sum(bpm_sky_cube, axis=0) > 0
+                if any(bpm is not None for bpm in bpm_sky_cube)
+                else None
+            )
 
             masked_master_sky = np.ma.masked_array(master_sky.data, mask=sky_bpm)
 
             masked_median = np.ma.median(masked_master_sky)
-
-
 
             plt.imshow(
                 masked_master_sky,
@@ -1247,22 +1271,30 @@ class Instrument:
 
             for i, frame in enumerate(raw_file_stack):
                 frame_median = self.random_median_calc(frame, bpm=bpms[i])
-          
+
                 scale_factor = frame_median / masked_median
                 sky_subtracted = frame - master_sky.data * scale_factor
-                sky_subtracted_median = self.random_median_calc(sky_subtracted, bpm=bpms[i])
+                sky_subtracted_median = self.random_median_calc(
+                    sky_subtracted, bpm=bpms[i]
+                )
                 # plot and write
                 plt.close()
 
                 if bpms[i] is not None:
                     mask = np.asarray(bpms[i], dtype=bool)
-                    sky_subtracted_masked = np.ma.masked_array(sky_subtracted, mask=mask)
+                    sky_subtracted_masked = np.ma.masked_array(
+                        sky_subtracted, mask=mask
+                    )
 
                 vmin = np.nanpercentile(sky_subtracted, 5)
                 vmax = np.nanpercentile(sky_subtracted, 95)
                 plt.figure(figsize=(8, 6))
                 plt.imshow(
-                    sky_subtracted_masked, cmap="gray", origin="lower", vmin=vmin, vmax=vmax
+                    sky_subtracted_masked,
+                    cmap="gray",
+                    origin="lower",
+                    vmin=vmin,
+                    vmax=vmax,
                 )
                 plt.colorbar()
                 plt.title(
@@ -1323,7 +1355,7 @@ class Instrument:
                     f"No object setup found at {object_setup_path}. Cannot perform sky subtraction without object setup."
                 )
                 logger.error("Run the reduction first")
-                
+
                 return object_setup
 
         for key, object_dict in object_setup.items():
@@ -1442,8 +1474,6 @@ class Instrument:
                     object_setup[key][object_name]["sufficient_sky_sub"] = False
 
                     continue
-
-
 
                 # at this point regular dithering is the only option left
 
@@ -1636,12 +1666,10 @@ class NOTCAM(Instrument):
         print(hdul[0].header["IMAGETYP"])
 
         if (
-            (
-                ('OBJECT' in hdul[0].header["IMAGETYP"])
-                or ("SKY" in hdul[0].header["IMAGETYP"])
-            )
-            #and (hdul[0].header["IMAGECAT"] == "SCIENCE")
-            #and (hdul[0].header["NCGRNM"] == "Open")
+            ("OBJECT" in hdul[0].header["IMAGETYP"])
+            or ("SKY" in hdul[0].header["IMAGETYP"])
+            # and (hdul[0].header["IMAGECAT"] == "SCIENCE")
+            # and (hdul[0].header["NCGRNM"] == "Open")
         ):
             return ImageType.SCIENCE
 
@@ -1923,9 +1951,7 @@ class NOTCAM(Instrument):
             skip_flats=False,
         )
 
-    def subtract_sky(
-        self, output_path, logger, object_setup=None, show_plots=False
-    ):
+    def subtract_sky(self, output_path, logger, object_setup=None, show_plots=False):
         # load the object setup from disk if not provided
         if object_setup is None:
             object_setup_path = os.path.join(output_path, "object_setup.json")
@@ -2000,11 +2026,10 @@ class NOTCAM(Instrument):
                                 )
                                 object_setup[key][object]["sky_frames"].append(file)
 
-        #remove the entry for objectname = sky from the object setup:
+        # remove the entry for objectname = sky from the object setup:
         for key in object_setup:
             if "sky" in object_setup[key]:
                 del object_setup[key]["sky"]
-        
 
         return super().subtract_sky(
             output_path, logger, object_setup=object_setup, show_plots=show_plots

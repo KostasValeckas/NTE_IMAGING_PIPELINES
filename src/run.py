@@ -6,12 +6,11 @@ from instruments import *
 
 from reduction import ReductionPipeline
 
+
 def main():
     # TODO: should logger be initialized already here?
 
-    parser = argparse.ArgumentParser(
-        description="Run imaging pipeline"
-    )
+    parser = argparse.ArgumentParser(description="Run imaging pipeline")
     parser.add_argument("raw_data_path", type=Path, help="Path to raw data")
     parser.add_argument(
         "-out",
@@ -48,11 +47,10 @@ def main():
     )
 
     parser.add_argument(
-        '--skip-WCS-refinement',
-        action='store_true',
-        help='Skip WCS refinement step during photometric calibrations'
+        "--skip-WCS-refinement",
+        action="store_true",
+        help="Skip WCS refinement step during photometric calibrations",
     )
-
 
     args = parser.parse_args()
 
@@ -98,7 +96,6 @@ def main():
             pipeline.run_photometric_calibrations()
         else:
             pipeline.run_photometric_calibrations(skip_WCS_refinement=True)
-        
 
 
 if __name__ == "__main__":

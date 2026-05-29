@@ -96,12 +96,10 @@ def write_frame(
     # TODO: the following code assumes that bpm hdul is always data + 1
     # and masked_array hdul is data + 2 - make more flexible?
 
-
     if bad_pixel_mask is not None:
         bad_pixel_hdu = fits.ImageHDU(
             data=bad_pixel_mask.astype(np.uint8), name="BAD_PIXEL_MASK"
         )
-
 
         # ensure the extension name is correct
         bad_pixel_hdu.header["EXTNAME"] = "BAD_PIXEL_MASK"
@@ -115,7 +113,7 @@ def write_frame(
             hdul.append(bad_pixel_hdu)
 
         # mask the data if bpm is provided and append to the hdul
-        
+
         masked_data_hdul = data_hdu.copy()
         masked_data_hdul.data = master_frame.copy()
         masked_data_hdul.data[np.array(bad_pixel_hdu.data, dtype=bool)] = np.nan
@@ -124,18 +122,13 @@ def write_frame(
         hdul.append(masked_data_hdul)
 
     elif len(hdul) >= instrument.data_hdu_extension + 3:
-        
+
         bad_pixel_hdu = hdul[instrument.data_hdu_extension + 1]
 
         masked_data_hdul = hdul[instrument.data_hdu_extension + 2]
         masked_data_hdul.data = master_frame.copy()
         masked_data_hdul.data[np.array(bad_pixel_hdu.data, dtype=bool)] = np.nan
         masked_data_hdul.header["EXTNAME"] = "MASKED_FRAME"
-        
-
-
-
- 
 
     # update header to record creation
     try:
