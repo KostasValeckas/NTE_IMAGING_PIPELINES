@@ -11,7 +11,6 @@ Module for general IO (mostly FITS file handling).
 """
 
 
-
 def open_fits_file(filepath: str, logger: Logger):
     """
     A robust wrapper around fits.open that handles exceptions and logs errors.
@@ -58,10 +57,10 @@ def get_header_value(hdul, keyword_tuple, logger: Logger):
     Returns
     -------
     value : str or None
-        The extracted header value if successful, 
-        "CONSTANT" if the keyword indicates a constant value, 
+        The extracted header value if successful,
+        "CONSTANT" if the keyword indicates a constant value,
         or None if the keyword tuple is invalid or the header value is not found.
-    
+
     """
     if keyword_tuple is None or len(keyword_tuple) != 2:
         return None
@@ -106,12 +105,12 @@ def get_header_values(hdul, keyword_tuple, logger: Logger):
     Returns
     -------
     value : str or None
-        The extracted header value if successful, 
-        "CONSTANT" if the keyword indicates a constant value, 
+        The extracted header value if successful,
+        "CONSTANT" if the keyword indicates a constant value,
         or None if the keyword tuple is invalid or the header value is not found.
-    
+
     """
-        
+
     if keyword_tuple is None or len(keyword_tuple) != 2:
         return None
 
@@ -149,7 +148,7 @@ def write_frame(
 ):
     """
     A method for writing frames to disc that also encapsulates the functionality
-    of extending the existing FITS header with additional HDUs (e.g. bad pixel mask) 
+    of extending the existing FITS header with additional HDUs (e.g. bad pixel mask)
     and updating the header with relevant information.
 
     Parameters
@@ -182,16 +181,15 @@ def write_frame(
         not provided, no comment will be added.
 
     header_updates : dict, optional
-        should be a dict of {keyword: value} pairs to update in the 
-        header of the data HDU, if provided. If not provided, no header updates 
-        will be made. 
-        
-        The format is {keyword: value} where keyword is the header keyword 
-        to be updated and value is the new value to be set for that keyword and a comment 
-        can be optionally provided as a tuple (value, comment) where comment is a string 
+        should be a dict of {keyword: value} pairs to update in the
+        header of the data HDU, if provided. If not provided, no header updates
+        will be made.
+
+        The format is {keyword: value} where keyword is the header keyword
+        to be updated and value is the new value to be set for that keyword and a comment
+        can be optionally provided as a tuple (value, comment) where comment is a string
         to be added as a comment for that header keyword.
     """
-
 
     data_hdu = hdul[instrument.data_hdu_extension]
 

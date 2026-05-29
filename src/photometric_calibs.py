@@ -28,19 +28,18 @@ Assumes that the data reduction has already been executed
 
 
 class Photometric_parser:
-
     """
     Class that holds the methods performing astrometric and photometric calibrations.
-    This includes methods for source detection, extraction and image stacking, and 
+    This includes methods for source detection, extraction and image stacking, and
     also querying different surveys (only few options implemented so far).
 
-    Uses [Source Extractor](https://www.astromatic.net/software/sextractor/), 
-    [SCAMP](https://www.astromatic.net/software/scamp/) and 
-    [SWarp](https://www.astromatic.net/software/swarp/). You need these tools 
-    installed if you wish to run the 
-    astrometric and photometric part of the pipeline. 
-    The pipeline is tested with the current versions 
-    of these tools: 
+    Uses [Source Extractor](https://www.astromatic.net/software/sextractor/),
+    [SCAMP](https://www.astromatic.net/software/scamp/) and
+    [SWarp](https://www.astromatic.net/software/swarp/). You need these tools
+    installed if you wish to run the
+    astrometric and photometric part of the pipeline.
+    The pipeline is tested with the current versions
+    of these tools:
 
     | Tool | Version |
     |------|---------|
@@ -48,12 +47,12 @@ class Photometric_parser:
     | SCAMP | 2.10.0 |
     | SWarp | 2.41.5 |
 
-    Follow the hyperlinks above for installation. 
+    Follow the hyperlinks above for installation.
 
-    Furthermore, these tools need to have a specific alias to interface correctly with 
-    the pipeline code. For example, some distributions of 
-    [SWarp](https://www.astromatic.net/software/swarp/) install the tool to be 
-    aliased as either `swarp` or `SWarp` depending on the version. 
+    Furthermore, these tools need to have a specific alias to interface correctly with
+    the pipeline code. For example, some distributions of
+    [SWarp](https://www.astromatic.net/software/swarp/) install the tool to be
+    aliased as either `swarp` or `SWarp` depending on the version.
 
     For the software to work, you need to alias them as in the following:
 
@@ -63,7 +62,7 @@ class Photometric_parser:
     | SCAMP | `scamp` |
     | SWarp | `SWarp` |
 
-    This means when you call `sex --help`, `scamp --help` and `SWarp --help` you should 
+    This means when you call `sex --help`, `scamp --help` and `SWarp --help` you should
     see the help pages for the tool getting printed in the command line.
 
     Parameters
@@ -75,8 +74,8 @@ class Photometric_parser:
     logger : Logger
         Logger instance for logging messages.
 
-    object_setup : 
-        Dictionary containing the object setup information. 
+    object_setup :
+        Dictionary containing the object setup information.
         See the `instruments` module, methods `reduce_science_frames` and `subtract_sky`
         for details.
 
@@ -96,7 +95,7 @@ class Photometric_parser:
         self.instrument = instrument
 
         # scripts for source extractor, scamp and swarp are placed in a fixed
-        # relative location to this script - the below line of code finds 
+        # relative location to this script - the below line of code finds
         # the script directory
         SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -112,7 +111,7 @@ class Photometric_parser:
     # these are identical, maybe refactor or just leave out at all
     def run_sex(self, command):
         """
-        Wrapper for running Source Extractor with the given command. 
+        Wrapper for running Source Extractor with the given command.
         Prints the command being executed for logging purposes.
         """
         self.logger.info("Executing:", " ".join(shlex.quote(a) for a in command))
@@ -120,7 +119,7 @@ class Photometric_parser:
 
     def run_scamp(self, command):
         """
-        Wrapper for running SCAMP with the given command. 
+        Wrapper for running SCAMP with the given command.
         Prints the command being executed for logging purposes.
         """
         self.logger.info("Executing:", " ".join(shlex.quote(a) for a in command))
@@ -128,7 +127,7 @@ class Photometric_parser:
 
     def run_swarp(self, command):
         """
-        Wrapper for running SWarp with the given command. 
+        Wrapper for running SWarp with the given command.
         Prints the command being executed for logging purposes.
         """
         self.logger.info("Executing:", " ".join(shlex.quote(a) for a in command))
@@ -144,7 +143,7 @@ class Photometric_parser:
         ----------
         masked_frame : np.ndarray
             The masked frame to plot.
-            Does not need to be masked but then the plot will likely be 
+            Does not need to be masked but then the plot will likely be
             not clear due to scaling.
         good_objects : Table
             The source extractor catalog table of good objects.
@@ -269,8 +268,33 @@ class Photometric_parser:
         object_name="unknown_object",
     ):
         """
-        Returns:
-        0 on success, -1 on failure (e.g. no valid matches found)
+        Queries SDSS for photometric calibration.
+
+        Parameters
+        ----------
+        catalog_path : str
+            Path to the SExtractor catalog FITS file (relative to reduced_dir).
+        frame_path : str
+            Path to the science frame FITS file (relative to reduced_dir).
+        filter_string : str
+            SDSS photometric filter (e.g. "g", "r", "i").
+        filter_error_string : str
+            SDSS photometric filter error (e.g. "g_err", "r_err", "i_err").
+        exptime : float
+            Exposure time of the science frame in seconds.
+        object_name : str
+            Name of the object being processed.
+
+
+        Writes a .fits table with the results named:
+        calibrated_SDSS_{object_name}_{filter_string}.fits
+
+        The columnds are RA, DEC, MAG_CAL_{filter_string}, MAG_CAL_ERR_{filter_string}.
+
+        Returns
+        -------
+        int
+            0 on success, -1 on failure.
         """
 
         with fits.open(os.path.join(self.reduced_dir, catalog_path)) as hdul:
@@ -355,10 +379,6 @@ class Photometric_parser:
 
         good = good_sep & good_sdss[idx] & good_inst
 
-        # only for debugging:
-
-        good_flux_auto = data_table["FLUX_AUTO"][good]
-
         matched_sdss = sdss[idx[good]]
 
         # instrumental_mag = matched_sources["MAG_AUTO"]
@@ -399,6 +419,12 @@ class Photometric_parser:
         plt.legend()
         plt.grid(True, ls=":", alpha=0.6)
         plt.tight_layout()
+        plt.savefig(
+            os.path.join(
+                self.reduced_dir,
+                f"zeropoint_distribution_{object_name}_{filter_string}.png",
+            )
+        )
         if self.show_plots:
             plt.show()
         else:
@@ -472,8 +498,31 @@ class Photometric_parser:
     ):
         """
         Query Pan-STARRS via MAST Catalogs for PS1 photometry and compute zeropoint.
-        Expects filter_string like 'gMeanPSFMag' and filter_error_string like 'gMeanPSFMagErr'
-        Returns 0 on success, -1 on failure.
+
+        Parameters
+        ----------
+        catalog_path : str
+            Path to the SExtractor catalog FITS file (relative to reduced_dir).
+        frame_path : str
+            Path to the science frame FITS file (relative to reduced_dir).
+        filter_string : str
+            Pan-STARRS photometric filter (e.g.  'gMeanPSFMag').
+        filter_error_string : str
+            Pan-STARRS photometric filter error (e.g. 'gMeanPSFMagErr').
+        exptime : float
+            Exposure time of the science frame in seconds.
+        object_name : str
+            Name of the object being processed.
+
+        Writes a .fits table with the results named:
+        calibrated_SDSS_{object_name}_{filter_string}.fits
+
+        The columnds are RA, DEC, MAG_CAL_{filter_string}, MAG_CAL_ERR_{filter_string}.
+
+        Returns
+        -------
+        int
+            0 on success, -1 on failure.
         """
 
         # load SExtractor table and frame WCS
@@ -623,6 +672,7 @@ class Photometric_parser:
         plt.legend()
         plt.grid(True, ls=":", alpha=0.6)
         plt.tight_layout()
+        plt.savefig(os.path.join(self.reduced_dir, f"panstarrs_zeropoint_{object_name}_{filter_string}.png"))
         if self.show_plots:
             plt.show()
         else:
@@ -657,7 +707,7 @@ class Photometric_parser:
             + zp_sigma**2
         )
 
-        print(f"Calibrated magnitudes (first 10): {calibrated_mag[:10]}")
+        self.logger.info(f"Calibrated magnitudes (first 10): {calibrated_mag[:10]}")
 
         # attach RA/DEC in degrees
         data_table["RA"] = ra
@@ -701,8 +751,32 @@ class Photometric_parser:
     ):
         """
         Query 2MASS via Vizier (II/246/out) for J/H/Ks photometry and compute zeropoint.
-        Expects filter_string like 'Jmag' and filter_error_string like 'e_Jmag'.
-        Returns 0 on success, -1 on failure.
+
+        Parameters
+        ----------
+        catalog_path : str
+            Path to the SExtractor catalog FITS file (relative to reduced_dir).
+        frame_path : str
+            Path to the science frame FITS file (relative to reduced_dir).
+        filter_string : str
+            Pan-STARRS photometric filter (e.g.  Jmag).
+        filter_error_string : str
+            Pan-STARRS photometric filter error (e.g. 'e_Jmag').
+        exptime : float
+            Exposure time of the science frame in seconds.
+        object_name : str
+            Name of the object being processed.
+
+        Writes a .fits table with the results named:
+        calibrated_SDSS_{object_name}_{filter_string}.fits
+
+        The columnds are RA, DEC, MAG_CAL_{filter_string}, MAG_CAL_ERR_{filter_string}.
+
+        Returns
+        -------
+        int
+            0 on success, -1 on failure.
+        
         """
         # load SExtractor table and frame WCS
         try:
@@ -906,6 +980,8 @@ class Photometric_parser:
 
         plt.tight_layout()
 
+        plt.savefig(os.path.join(self.reduced_dir, f"2mass_zeropoint_{object_name}_{filter_string}.png"))
+
         if self.show_plots:
 
             plt.show()
@@ -1004,6 +1080,24 @@ class Photometric_parser:
         pass
 
     def run(self, skip_WCS_refinement=False):
+
+        """
+        Driver method for source detection and photometric calibration.
+
+        Algorithm:
+
+        - Extract sources from each frame using SExtractor with a weight map derived from the BPM.
+        - Use these sources with SCAMP to refine the WCS solution for each frame.
+        - Stack the frames based on the WCS using SWarp.
+        - Extract sources from the final stacked image,
+        - Call the method `calculate_photometry` to perform photometric calibration using the extracted sources.
+        This method is implemented differently for each instrument.
+
+        Parameters
+        ----------
+        skip_WCS_refinement : bool
+            If True, skip the WCS refinement step and proceed with stacking using existing WCS.
+        """
 
         for obj_key, object_info in self.object_setup.items():
 
@@ -1338,7 +1432,38 @@ class Photometric_parser:
 
 class ALFOSC_parser(Photometric_parser):
 
+    """
+    ALFOSC photometric parser class. 
+
+    See `Photometric_parser` class for full parameter docs.
+
+    Attributes
+    ----------
+    sex_config : str
+        Path to the SExtractor configuration file.
+    scamp_config : str
+        Path to the SCAMP configuration file.
+    swarp_config : str
+        Path to the SWarp configuration file.
+
+    filter_query_mapping_SDSS : dict
+        Mapping of filter names to the corresponding magnitude and error columns 
+        in the SDSS catalog.
+
+    filter_query_mapping_PanSTARRS : dict
+        Mapping of filter names to the corresponding magnitude and error columns 
+        in the Pan-STARRS catalog.
+
+    mask_x_fraction : float
+        Fraction of the detector edges to ignore in the x-direction when creating the weight map.
+
+    mask_y_fraction : float
+        Fraction of the detector edges to ignore in the y-direction when creating the weight map.
+    """
+
     def __init__(self, reduced_dir, logger, object_setup, instrument, show_plots=False):
+            
+        # pathes to configuration files for SExtractor, SCAMP and SWarp.
 
         SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -1349,6 +1474,8 @@ class ALFOSC_parser(Photometric_parser):
         self.scamp_config = str(SCRIPT_DIR / ".." / "scamp_files" / "alfosc.conf")
 
         self.swarp_config = str(SCRIPT_DIR / ".." / "swarp_files" / "alfosc.swarp")
+
+        # the below mappings define which columns to query from the SDSS and Pan-STARRS catalogs for each filter.
 
         # TODO expland with more filters as needed
         self.filter_query_mapping_SDSS = {
@@ -1366,6 +1493,7 @@ class ALFOSC_parser(Photometric_parser):
             "z'": ["zMeanPSFMag", "zMeanPSFMagErr"],
         }
 
+        # what fraction of detector edges to ignore
         self.mask_x_fraction = 0.1
         self.mask_y_fraction = 0.1
 
@@ -1374,6 +1502,21 @@ class ALFOSC_parser(Photometric_parser):
         )
 
     def calculate_photometry(self, obj_key, object_name):
+
+        """
+        ALFOSC photometric calibration. Queries SDSS first, then Pan-STARRS if SDSS fails.
+
+        See the different query methods (e.g. `query_SDSS`, `query_PanSTARRS`) 
+        for details on the specific implementation of each catalog query and calibration.
+
+        Parameters
+        ----------
+        obj_key : str
+            The key identifying the object in the catalog.
+
+        object_name : str
+            The name of the object to calibrate.
+        """
 
         if self.stripped_filter_name not in self.filter_query_mapping_SDSS:
             self.logger.error(
@@ -1425,7 +1568,35 @@ class ALFOSC_parser(Photometric_parser):
 
 class NOTCAM_parser(Photometric_parser):
 
+    """
+    NOTCAM photometric parser class.
+
+    See `Photometric_parser` class for full parameter docs.
+
+    Attributes
+    ----------
+    sex_config : str
+        Path to the SExtractor configuration file.
+    scamp_config : str
+        Path to the SCAMP configuration file.
+    swarp_config : str
+        Path to the SWarp configuration file.
+
+    filter_query_mapping_2MASS : dict
+        Mapping of filter names to the corresponding magnitude and error columns 
+        in the 2MASS catalog.
+
+    mask_x_fraction : float
+        Fraction of the detector edges to ignore in the x-direction when creating the weight map.
+
+    mask_y_fraction : float
+        Fraction of the detector edges to ignore in the y-direction when creating the weight map.
+
+    """
+
     def __init__(self, reduced_dir, logger, object_setup, instrument, show_plots=False):
+
+        # pathes to configuration files for SExtractor, SCAMP and SWarp.
 
         SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -1436,6 +1607,8 @@ class NOTCAM_parser(Photometric_parser):
         self.scamp_config = str(SCRIPT_DIR / ".." / "scamp_files" / "notcam.conf")
 
         self.swarp_config = str(SCRIPT_DIR / ".." / "swarp_files" / "notcam.swarp")
+
+        # the below mapping defines which columns to query from the 2MASS catalog for each filter.
 
         self.filter_query_mapping_2MASS = {
             "J": ["Jmag", "e_Jmag"],
@@ -1452,6 +1625,21 @@ class NOTCAM_parser(Photometric_parser):
         )
 
     def calculate_photometry(self, obj_key, object_name):
+
+        """
+        NOTCAM photometric calibration. Queries 2MASS for J/H/Ks photometry.
+    
+        See the `query_2MASS` method for details on the specific implementation 
+        of the catalog query and calibration.
+
+        Parameters
+        ----------
+        obj_key : str
+            The key identifying the object in the catalog.
+
+        object_name : str
+            The name of the object to calibrate.
+        """
 
         if self.stripped_filter_name not in self.filter_query_mapping_2MASS:
             self.logger.error(

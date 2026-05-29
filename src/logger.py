@@ -11,16 +11,16 @@ of the raw_data_directory_pipeline.log Will be overrriden on repeated executions
 
 def init_logger(path):
     """
-    Initializes a logger for the pipeline. The logger will log messages to both 
-    the console and a file. The log file will be created in the same directory 
+    Initializes a logger for the pipeline. The logger will log messages to both
+    the console and a file. The log file will be created in the same directory
     as the raw data, with the name of the raw data directory followed by "_pipeline.log".
-    The logger will use different colors for different log levels when printing to 
+    The logger will use different colors for different log levels when printing to
     the console.
 
     Parameters
     ----------
     path : str
-        The path to the raw data directory, which will be used to determine the 
+        The path to the raw data directory, which will be used to determine the
         name and location of the log file.
     """
 

@@ -21,19 +21,20 @@ that inherit from it adjust the different methods for instrument specific
 cases and define keyword header mapping.
 """
 
+
 @dataclass
 class Detector:
     """
-    Dataclass for storing mappings for detector header keywords and relevant 
+    Dataclass for storing mappings for detector header keywords and relevant
     reduction parameters.
 
-    For header values, the mapping is a tuple where the last entry in the 
-    tuple is an integer representing the HDU extension where the keyword can be found. 
+    For header values, the mapping is a tuple where the last entry in the
+    tuple is an integer representing the HDU extension where the keyword can be found.
 
-    For example, if the detector gain keyword is "GAIN" in HDU[1], then the 
+    For example, if the detector gain keyword is "GAIN" in HDU[1], then the
     entry should be: ("GAIN", 1)
 
-    Header keywords set as optional but the pipeline will likely crash if these 
+    Header keywords set as optional but the pipeline will likely crash if these
     are left undefined.
 
     Paramters
@@ -52,7 +53,7 @@ class Detector:
 
     pixel_scale: Optional[tuple[str, int]]
         Tuple of (keyword, extension) for pixel scale in FITS header.
-    
+
     field_of_view: Optional[tuple[str, int]]
         Tuple of (keyword, extension) for field of view in FITS header.
 
@@ -66,14 +67,15 @@ class Detector:
         Tuple of (keyword, extension) for binning in Y direction in FITS header.
 
     bpm_median_threshold: Optional[float]:
-        Threshold in terms of median deviation for identifying bad pixels when 
-        creating/updating the bad pixel map. Pixels that deviate from the 
-        median by more than this threshold (in units of median) will be flagged 
-        as bad pixels. Default is 0.2, meaning pixels that deviate from the 
+        Threshold in terms of median deviation for identifying bad pixels when
+        creating/updating the bad pixel map. Pixels that deviate from the
+        median by more than this threshold (in units of median) will be flagged
+        as bad pixels. Default is 0.2, meaning pixels that deviate from the
         median by more than 20% will be flagged as bad.
-        
+
 
     """
+
     gain: Optional[tuple[str, int]] = None
     read_noise: Optional[tuple[str, int]] = None
     saturation_level: Optional[tuple[str, int]] = None
@@ -89,16 +91,18 @@ class Detector:
 @dataclass
 class Telescope:
     """
-    Dataclass for describing the Telescope. Currently not used but leaving here 
+    Dataclass for describing the Telescope. Currently not used but leaving here
     as it might be useful for later developtment.
     """
+
     name: Optional[tuple[str, int]] = None
+
 
 class Instrument:
     """
     Dataclass for describing the Instrument. Contains information about the
     detector, telescope, and FITS keyword mappings used in the data reduction
-    pipeline. 
+    pipeline.
 
     **Not to be used by itself but to be inherited by the instrument implementations**.
 
@@ -107,7 +111,7 @@ class Instrument:
     For example, if the filter keyword is "FILTER" in HDU[0], then the entry should be: ("FILTER", 0)
 
     Parameters set as optional for flexibility but the pipeline will likely crash
-    if some of them are not defined. 
+    if some of them are not defined.
 
     Paramters
     ---------
@@ -125,22 +129,22 @@ class Instrument:
         that correspond to the different filter wheels. Can be of length 1.
 
     obsmode_keyword: Optional[tuple[str, int]]
-        Tuple of (keyword, extension) for observation mode in FITS header. 
+        Tuple of (keyword, extension) for observation mode in FITS header.
         This is used to help determine the image type (bias, dark, flat, science)
         of the frames.
 
         Used on `match_image_type` method.
 
     imaging_obsmode_keyword: Optional[tuple[str, int]]
-        Tuple of (keyword, extension) for imaging observation mode in FITS header. 
+        Tuple of (keyword, extension) for imaging observation mode in FITS header.
         This is used to help determine the image type (bias, dark, flat, science)
-        of the frames. Used in extension to obsmode_keyword for more specific 
+        of the frames. Used in extension to obsmode_keyword for more specific
         identification of imaging frames.
 
         Used on `match_image_type` method.
 
     imagetype_keyword: Optional[tuple[str, int]]
-        Tuple of (keyword, extension) for image type in FITS header. This is used 
+        Tuple of (keyword, extension) for image type in FITS header. This is used
         to help determine the image type (bias, dark, flat, science) of the frames.
 
         Used on `match_image_type` method.
@@ -173,7 +177,8 @@ class Instrument:
         Tuple of (keyword, extension) for declination in FITS header.
 
     """
-    def __init__(   
+
+    def __init__(
         self,
         name: Optional[str] = None,
         detector: Optional[Detector] = None,
@@ -243,12 +248,11 @@ class Instrument:
 
         Returns
         -------
-        value(s) corresponding to the provided keyword(s) in the specified HDU extension. 
+        value(s) corresponding to the provided keyword(s) in the specified HDU extension.
         If the keyword is not found or its value is None, returns None.
         """
 
         return get_header_value(hdul, keyword_tuple, logger)
-
 
     def match_image_type(self, hdul) -> Optional[ImageType]:
         """
@@ -256,7 +260,7 @@ class Instrument:
 
         Left completely blank to have full freedom per instrument basis.
 
-        In the instrument specific implementations, should return a 
+        In the instrument specific implementations, should return a
         `datatypes.ImageType` enum value.
 
         Parameters
@@ -276,11 +280,10 @@ class Instrument:
         bad_pixel_mask=None,
         show_plots=False,
     ):
-        
         """
         Updates (or creates) a bad pixel map based on sigma clipping the frame.
-        Pixels that deviate significantly from the median are marked as bad. The 
-        threshold is set in the `Detector` dataclass as `bpm_median_threshold`, 
+        Pixels that deviate significantly from the median are marked as bad. The
+        threshold is set in the `Detector` dataclass as `bpm_median_threshold`,
         which is in units of median deviation.
 
         Parameters
@@ -298,7 +301,7 @@ class Instrument:
             Key corresponding to the current setup, used for naming the output plot.
 
         bad_pixel_mask: 2D boolean Numpy Array, optional
-            Existing bad pixel mask to combine with. If None, a new mask will be created. 
+            Existing bad pixel mask to combine with. If None, a new mask will be created.
             Bad pixels should be marked as True and good pixels as False.
 
         show_plots: bool, optional
@@ -432,7 +435,7 @@ class Instrument:
 
         bias_setup: dict
             Dictionary defining the bias frames to be combined for each setup.
-            The keys should be unique identifiers for each setup 
+            The keys should be unique identifiers for each setup
             (e.g., "window1_bin1x1"), and the values should be dictionaries containing:
                 - "files": list of filenames corresponding to the bias frames for that setup
                 - "window": window setting for that setup
@@ -446,20 +449,20 @@ class Instrument:
             Dictionary of existing bad pixel masks for each setup.
 
         show_plots: bool, optional
-            Whether to display the diagnostic plots during master bias creation. 
+            Whether to display the diagnostic plots during master bias creation.
             Default is False.
 
         Returns
         -------
         master_biases: dict
-            Dictionary of master bias frames for each setup, where the keys are 
-            the same as in `bias_setup` and the values are the master bias frames 
+            Dictionary of master bias frames for each setup, where the keys are
+            the same as in `bias_setup` and the values are the master bias frames
             as CCDData objects.
 
         bad_pixel_masks: dict
             Updated dictionary of bad pixel masks for each setup after
             processing the bias frames.
-        
+
         """
 
         if bad_pixel_masks is None:
@@ -593,11 +596,11 @@ class Instrument:
         skip_bias_correction=False,
     ):
         """
-        Master method for creating master flat frames for each setup 
+        Master method for creating master flat frames for each setup
         defined in the `flat_setup` dictionary.
 
-        First corrects for dark current and bias (optional), estimates bad pixels, 
-        normalizes the frames, and then creates the master flat by 2-sigma clipped 
+        First corrects for dark current and bias (optional), estimates bad pixels,
+        normalizes the frames, and then creates the master flat by 2-sigma clipped
         median combination.
 
         Both writes, returns and stores (heap) the master frames and bad pixel masks.
@@ -612,7 +615,7 @@ class Instrument:
 
         flat_setup: dict
             Dictionary defining the flat frames to be combined for each setup.
-            The keys should be unique identifiers for each setup 
+            The keys should be unique identifiers for each setup
             (e.g., "window1_bin1x1_filterR"), and the values should be dictionaries containing:
                 - "files": list of filenames corresponding to the flat frames for that setup
                 - "window": window setting for that setup
@@ -627,11 +630,11 @@ class Instrument:
             Dictionary of existing bad pixel masks for each setup.
 
         dark_frames: dict, optional
-            Dictionary of master dark frames for each setup, where the keys are 
+            Dictionary of master dark frames for each setup, where the keys are
             the same as in `bias_setup`.
 
         bias_frames: dict, optional
-            Dictionary of master bias frames for each setup, where the keys are 
+            Dictionary of master bias frames for each setup, where the keys are
             the same as in `bias_setup`.
 
         science_to_bias_map: dict, optional
@@ -920,7 +923,7 @@ class Instrument:
         logger,
         show_plots=False,
         bad_pixel_masks=None,
-        #TODO: now configured to take the bpm's from them disc,
+        # TODO: now configured to take the bpm's from them disc,
         # implementent it use ones from head if exists
         dark_frames=None,
         bias_frames=None,
@@ -930,15 +933,14 @@ class Instrument:
         skip_bias=False,
         skip_flats=False,
     ):
-
         """
         Method for reducing science frames for each setup defined in the
         `science_configurations` dictionary.
 
         Can perform dark and/or bias subtraction, flat fielding and
-        cosmic ray removal. Also estimates a bad pixel mask. 
+        cosmic ray removal. Also estimates a bad pixel mask.
 
-        Sorts the reduced files into new dictionaries based on the object 
+        Sorts the reduced files into new dictionaries based on the object
         name for further processing (like sky-sub and combinning).
 
         Writes the reduced science frames to disk.
@@ -974,7 +976,7 @@ class Instrument:
             Whether to display diagnostic plots during science frame reduction. Default is False.
 
         bad_pixel_masks: dict, optional
-            Dictionary of bad pixel masks for each setup, 
+            Dictionary of bad pixel masks for each setup,
             where the keys are the same as in bias setup files.
 
         dark_frames: dict, optional
@@ -1377,12 +1379,11 @@ class Instrument:
     def sky_subtract_median(
         self, object_dict, output_path, logger, setup_key, show_plots=False
     ):
-
         """
         Simple method to subtract sky background using the median of the frame
         (constant background).
 
-        Intended as a fallback for cases where no other alternatives can be 
+        Intended as a fallback for cases where no other alternatives can be
         employed.
 
         Writes the sky-subtracted frames to disk.
@@ -1390,7 +1391,7 @@ class Instrument:
         Parameters
         ----------
         object_dict : dict
-            Dictionary containing object information 
+            Dictionary containing object information
             (see output of `reduce_science_frames` and `subtract_sky` methods).
         output_path : str
             Path to the output directory.
@@ -1420,9 +1421,7 @@ class Instrument:
                 frame_median = self.safe_median_calc(frame.data, bpm=bpm)
                 skysubbed_frame = frame.data.data - frame_median
 
-                sky_subtracted_median = self.safe_median_calc(
-                    skysubbed_frame, bpm=bpm
-                )
+                sky_subtracted_median = self.safe_median_calc(skysubbed_frame, bpm=bpm)
 
                 plt.close()
 
@@ -1470,10 +1469,7 @@ class Instrument:
                     },
                 )
 
-    def sky_subtract_AB(
-        self, object_dict, output_path, logger, show_plots=False
-    ):
-
+    def sky_subtract_AB(self, object_dict, output_path, logger, show_plots=False):
         """
         Method for performing A-B sky subtraction.
 
@@ -1482,7 +1478,7 @@ class Instrument:
         Parameters
         ----------
         object_dict : dict
-            Dictionary containing object information 
+            Dictionary containing object information
             (see output of `reduce_science_frames` and `subtract_sky` methods).
         output_path : str
             Path to the output directory.
@@ -1592,9 +1588,8 @@ class Instrument:
         show_plots=False,
         skyframes=False,
     ):
-        
         """
-        Method for performing sky subtraction by constructing a sky frames 
+        Method for performing sky subtraction by constructing a sky frames
         using either dithered science frames or off-beam sky observations.
 
         Writes the constructed sky frame and the sky-subtracted frames to disk.
@@ -1602,7 +1597,7 @@ class Instrument:
         Parameters
         ----------
         object_dict : dict
-            Dictionary containing object information  
+            Dictionary containing object information
             (see output of `reduce_science_frames` and `subtract_sky` methods).
         output_path : str
             Path to the output directory.
@@ -2139,7 +2134,7 @@ class NOTCAM(Instrument):
         geometry as NOTCAM
         does not offer custom binning or windowing modes.
 
-        Parameters        
+        Parameters
         ----------
         hdul : fits.HDUList
             The HDUList of the frame to extract the header value from.
@@ -2187,10 +2182,9 @@ class NOTCAM(Instrument):
             return ImageType.DARK
 
         if (
-            (("OBJECT" in hdul[0].header["IMAGETYP"])
-            or ("SKY" in hdul[0].header["IMAGETYP"]))
-            and (hdul[0].header["NCGRNM"] == "Open")
-        ):
+            ("OBJECT" in hdul[0].header["IMAGETYP"])
+            or ("SKY" in hdul[0].header["IMAGETYP"])
+        ) and (hdul[0].header["NCGRNM"] == "Open"):
             return ImageType.SCIENCE
 
     def make_master_bias(
@@ -2225,7 +2219,7 @@ class NOTCAM(Instrument):
         For NOTcam, differential flats are used, so we do some
         pre-processing before doing the "standard" master flat creation.
 
-        See the make_master_flat method from `Instrument` class for parameter 
+        See the make_master_flat method from `Instrument` class for parameter
         documentation.
         """
 
@@ -2254,8 +2248,12 @@ class NOTCAM(Instrument):
 
                 try:
                     data = hdul[self.data_hdu_extension].data
-                    exptime = self.get_header_value(hdul, self.exposure_time_keyword, logger)
-                    object_name = self.get_header_value(hdul, self.object_keyword, logger)
+                    exptime = self.get_header_value(
+                        hdul, self.exposure_time_keyword, logger
+                    )
+                    object_name = self.get_header_value(
+                        hdul, self.object_keyword, logger
+                    )
 
                 except Exception:
                     logger.error(
@@ -2279,7 +2277,7 @@ class NOTCAM(Instrument):
             order = np.argsort(meds)[::-1]  # indices for descending medians
 
             # reorder filenames
-           
+
             value["files"] = [value["files"][i] for i in order]
             # assume raw_data_list already aligns with value["files"]
             raw_data_list = [raw_data_list[i] for i in order]
@@ -2434,7 +2432,7 @@ class NOTCAM(Instrument):
             # update the flat setup to point to the newly written differential files
             value["files"] = diff_file_names
 
-        # now handle the diff flats as regular flats    
+        # now handle the diff flats as regular flats
 
         return super().make_master_flat(
             input_dir,
@@ -2489,7 +2487,7 @@ class NOTCAM(Instrument):
         and we need to remap it, such so it is only sorted by object name.
 
         Also, this method identifies off-beam sky frames based on the NOTCAM file
-        naming convention and attaches them to the relevant science objects in 
+        naming convention and attaches them to the relevant science objects in
         the object setup, so they can be used for sky subtraction.
 
         See the subtract_sky method from `Instrument` class for parameter documentation.
