@@ -1095,8 +1095,6 @@ class Photometric_parser:
                     self.swarp_config,
                     "-IMAGEOUT_NAME",
                     self.final_result_name,
-                    "-RESAMPLE_DIR",
-                    str(self.reduced_dir),
                     "-WEIGHT_IMAGE",
                     "@" + weights_list_name,
                     "-WEIGHTOUT_NAME",

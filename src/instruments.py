@@ -13,6 +13,14 @@ from datetime import datetime
 import astroscrappy
 
 
+"""
+Main module in the pipeline for defining the methods for the data reduction.
+
+The Instrument class defines all methods for data reduction  and the instrument objects
+that inherit from it adjust the different methods for instrument specific 
+cases and define keyword header mapping.
+"""
+
 @dataclass
 class Detector:
     """
@@ -1907,7 +1915,7 @@ class Instrument:
                     )
 
                     self.sky_subtract_AB(
-                        object_dict, output_path, logger, key, show_plots=show_plots
+                        object_dict, output_path, logger, show_plots=show_plots
                     )
 
                     object_setup[key][object_name]["sufficient_sky_sub"] = False
@@ -2125,7 +2133,7 @@ class NOTCAM(Instrument):
             DEC_keyword=("DEC", 0),
         )
 
-    def get_header_value(self, hdul, keyword_tuple) -> Optional[str]:
+    def get_header_value(self, hdul, keyword_tuple, logger) -> Optional[str]:
         """
         Override the get_header_value method to return dummy values for detrector
         geometry as NOTCAM
@@ -2153,7 +2161,7 @@ class NOTCAM(Instrument):
             return "0"
 
         else:
-            return super().get_header_value(hdul, keyword_tuple)
+            return super().get_header_value(hdul, keyword_tuple, logger)
 
     def match_image_type(self, hdul) -> Optional[ImageType]:
         """
@@ -2559,6 +2567,8 @@ class NOTCAM(Instrument):
         for key in object_setup:
             if "sky" in object_setup[key]:
                 del object_setup[key]["sky"]
+
+        # now we can proceed with the regular sky subtraction
 
         return super().subtract_sky(
             output_path, logger, object_setup=object_setup, show_plots=show_plots

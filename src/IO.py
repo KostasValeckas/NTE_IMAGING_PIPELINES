@@ -5,11 +5,29 @@ from astropy.io import fits
 from enum import Enum
 from logging import Logger
 from datatypes import Processed_frame
-import matplotlib.pyplot as plt
+
+"""
+Module for general IO (mostly FITS file handling).
+"""
+
 
 
 def open_fits_file(filepath: str, logger: Logger):
-    # a robust wrapper around fits.open that handles exceptions and logs errors
+    """
+    A robust wrapper around fits.open that handles exceptions and logs errors.
+
+    Parameters
+    ----------
+    filepath : str
+        The path to the FITS file to be opened.
+    logger : Loggers
+        The logger instance to use for logging errors.
+
+    Returns
+    -------
+    hdul : astropy.io.fits.HDUList or None
+        The opened HDUList if successful, or None if an error occurred.
+    """
     try:
         hdul = fits.open(filepath)
         return hdul
@@ -19,7 +37,32 @@ def open_fits_file(filepath: str, logger: Logger):
 
 
 def get_header_value(hdul, keyword_tuple, logger: Logger):
-    """Helper method to extract header value based on provided keyword tuple"""
+    """
+    Helper method to extract header value based on provided keyword tuple
+    for singular values.
+    (see `Instrument` class for details on keyword tuple structure).
+
+    Parameters
+    ----------
+    hdul : astropy.io.fits.HDUList
+        The HDUList from which to extract the header value.
+
+    keyword_tuple : tuple
+        A tuple of the form (keyword, hdu_index) where:
+        - keyword: The header keyword to extract.
+        - hdu_index: The index of the HDU from which to extract the header values.
+
+    logger : Logger
+        The logger instance to use for logging warnings or errors.
+
+    Returns
+    -------
+    value : str or None
+        The extracted header value if successful, 
+        "CONSTANT" if the keyword indicates a constant value, 
+        or None if the keyword tuple is invalid or the header value is not found.
+    
+    """
     if keyword_tuple is None or len(keyword_tuple) != 2:
         return None
 
@@ -42,7 +85,33 @@ def get_header_value(hdul, keyword_tuple, logger: Logger):
 
 
 def get_header_values(hdul, keyword_tuple, logger: Logger):
-    """Helper method to extract multiple header values based on provided keyword tuple"""
+    """
+    Helper method to extract header value based on provided keyword tuple
+    for a list of values.
+    (see `Instrument` class for details on keyword tuple structure).
+
+    Parameters
+    ----------
+    hdul : astropy.io.fits.HDUList
+        The HDUList from which to extract the header value.
+
+    keyword_tuple : tuple
+        A tuple of the form (keyword, hdu_index) where:
+        - keyword: The header keyword to extract.
+        - hdu_index: The index of the HDU from which to extract the header values.
+
+    logger : Logger
+        The logger instance to use for logging warnings or errors.
+
+    Returns
+    -------
+    value : str or None
+        The extracted header value if successful, 
+        "CONSTANT" if the keyword indicates a constant value, 
+        or None if the keyword tuple is invalid or the header value is not found.
+    
+    """
+        
     if keyword_tuple is None or len(keyword_tuple) != 2:
         return None
 
@@ -79,12 +148,50 @@ def write_frame(
     header_updates=None,
 ):
     """
-    header_updates should be a dict of {keyword: value} pairs to update in the header of the data HDU, if provided. If not provided, no header updates will be made.
+    A method for writing frames to disc that also encapsulates the functionality
+    of extending the existing FITS header with additional HDUs (e.g. bad pixel mask) 
+    and updating the header with relevant information.
+
+    Parameters
+    ----------
+    instrument : Instrument
+        The `Instrument` object.
+
+    hdul : astropy.io.fits.HDUList
+        The HDUList to which the master frame and additional HDUs will be written.
+
+    master_frame : numpy.ndarray
+        The master frame data to be written to the FITS file.
+
+    write_name : str
+        The name of the output FITS file (without path).
+
+    output_path : str
+        The directory path where the output FITS file will be saved.
+
+    logger : Logger
+        The logger instance to use for logging information and errors.
+
+    bad_pixel_mask : numpy.ndarray, optional
+        A 2D array representing the bad pixel mask, where bad pixels are marked as True
+        and good pixels as False. If provided, this mask will be written as a new HDU
+        and the master frame will be masked accordingly. If not provided, no bad pixel mask
+        will be written and the master frame will not be masked.
+    comment : str, optional
+        A comment to be added to the header of the data HDU, if provided. If
+        not provided, no comment will be added.
+
+    header_updates : dict, optional
+        should be a dict of {keyword: value} pairs to update in the 
+        header of the data HDU, if provided. If not provided, no header updates 
+        will be made. 
+        
+        The format is {keyword: value} where keyword is the header keyword 
+        to be updated and value is the new value to be set for that keyword and a comment 
+        can be optionally provided as a tuple (value, comment) where comment is a string 
+        to be added as a comment for that header keyword.
     """
 
-    # print type of maskter bias and bad pixel mask for debugging
-    print(f"Type of master_frame: {type(master_frame)}, shape: {master_frame.shape}")
-    print(f"Type of bad_pixel_mask: {type(bad_pixel_mask)}")
 
     data_hdu = hdul[instrument.data_hdu_extension]
 
