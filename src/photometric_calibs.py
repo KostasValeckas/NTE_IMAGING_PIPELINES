@@ -13,15 +13,79 @@ import astropy.units as u
 
 from astroquery.sdss import SDSS
 from astroquery.vizier import Vizier
-from astroquery.vizier import Vizier as _Vizier
 from astroquery.mast import Catalogs
 from pathlib import Path
 
 
 from IO import open_fits_file, get_header_value
 
+"""
+Module for performing astrometric and photometric calibrations. 
+
+Assumes that the data reduction has already been executed 
+(see the class `reduction`).
+"""
+
 
 class Photometric_parser:
+
+    """
+    Class that holds the methods performing astrometric and photometric calibrations.
+    This includes methods for source detection, extraction and image stacking, and 
+    also querying different surveys (only few options implemented so far).
+
+    Uses [Source Extractor](https://www.astromatic.net/software/sextractor/), 
+    [SCAMP](https://www.astromatic.net/software/scamp/) and 
+    [SWarp](https://www.astromatic.net/software/swarp/). You need these tools 
+    installed if you wish to run the 
+    astrometric and photometric part of the pipeline. 
+    The pipeline is tested with the current versions 
+    of these tools: 
+
+    | Tool | Version |
+    |------|---------|
+    | Source Extractor | 2.29.0 |
+    | SCAMP | 2.10.0 |
+    | SWarp | 2.41.5 |
+
+    Follow the hyperlinks above for installation. 
+
+    Furthermore, these tools need to have a specific alias to interface correctly with 
+    the pipeline code. For example, some distributions of 
+    [SWarp](https://www.astromatic.net/software/swarp/) install the tool to be 
+    aliased as either `swarp` or `SWarp` depending on the version. 
+
+    For the software to work, you need to alias them as in the following:
+
+    | Tool | Command Line Alias |
+    |------|---------|
+    | Source Extractor | `sex` |
+    | SCAMP | `scamp` |
+    | SWarp | `SWarp` |
+
+    This means when you call `sex --help`, `scamp --help` and `SWarp --help` you should 
+    see the help pages for the tool getting printed in the command line.
+
+    Parameters
+    ----------
+
+    reduced_dir : str
+        Path to the directory containing the reduced data.
+
+    logger : Logger
+        Logger instance for logging messages.
+
+    object_setup : 
+        Dictionary containing the object setup information. 
+        See the `instruments` module, methods `reduce_science_frames` and `subtract_sky`
+        for details.
+
+    instrument : Instrument
+        Instrument instance.
+
+    show_plots : bool, optional
+        Whether to show plots during processing. Default is False.
+    """
 
     def __init__(self, reduced_dir, logger, object_setup, instrument, show_plots=False):
 
@@ -31,6 +95,9 @@ class Photometric_parser:
         self.show_plots = show_plots
         self.instrument = instrument
 
+        # scripts for source extractor, scamp and swarp are placed in a fixed
+        # relative location to this script - the below line of code finds 
+        # the script directory
         SCRIPT_DIR = Path(__file__).resolve().parent
 
         self.sex_param = str(
@@ -39,24 +106,52 @@ class Photometric_parser:
 
     def determine_configurations(self):
         # TODO might not need this - keep for API
+        # not used right now
         pass
 
     # these are identical, maybe refactor or just leave out at all
     def run_sex(self, command):
-        print("Executing:", " ".join(shlex.quote(a) for a in command))
+        """
+        Wrapper for running Source Extractor with the given command. 
+        Prints the command being executed for logging purposes.
+        """
+        self.logger.info("Executing:", " ".join(shlex.quote(a) for a in command))
         subprocess.run(command, cwd=self.reduced_dir, check=True)
 
     def run_scamp(self, command):
-        print("Executing:", " ".join(shlex.quote(a) for a in command))
+        """
+        Wrapper for running SCAMP with the given command. 
+        Prints the command being executed for logging purposes.
+        """
+        self.logger.info("Executing:", " ".join(shlex.quote(a) for a in command))
         subprocess.run(command, cwd=self.reduced_dir, check=True)
 
     def run_swarp(self, command):
-        print("Executing:", " ".join(shlex.quote(a) for a in command))
+        """
+        Wrapper for running SWarp with the given command. 
+        Prints the command being executed for logging purposes.
+        """
+        self.logger.info("Executing:", " ".join(shlex.quote(a) for a in command))
         subprocess.run(command, cwd=self.reduced_dir, check=True)
 
-    def plot_apertures(self, masked_frame, good_objects, filename):
+    def plot_apertures(self, masked_frame, good_objects, filename, linewidth=1):
         """
-        Helper method to plot SExtractor apertures to avoid repeated code
+        Helper method to plot SExtractor apertures to avoid repeated code.
+
+        Saves the plot to the specified filename.
+
+        Parameters
+        ----------
+        masked_frame : np.ndarray
+            The masked frame to plot.
+            Does not need to be masked but then the plot will likely be 
+            not clear due to scaling.
+        good_objects : Table
+            The source extractor catalog table of good objects.
+        filename : str
+            The filename to save the plot.
+        linewidth : float, optional
+            The linewidth for the plot. Default is 1.
         """
 
         fig, ax = plt.subplots()
@@ -126,7 +221,7 @@ class Photometric_parser:
                         angle=theta,
                         edgecolor="red",
                         facecolor="none",
-                        linewidth=3,
+                        linewidth=linewidth,
                     )
                     ax.add_patch(ell)
             else:
