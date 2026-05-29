@@ -1045,6 +1045,8 @@ class Photometric_parser:
                     self.swarp_config,
                     "-IMAGEOUT_NAME",
                     self.final_result_name,
+                    "-RESAMPLE_DIR",
+                    str(self.reduced_dir),
                     "-WEIGHT_IMAGE",
                     "@" + weights_list_name,
                     "-WEIGHTOUT_NAME",
@@ -1056,6 +1058,11 @@ class Photometric_parser:
                 ]
 
                 self.run_swarp(swarp_cmd)
+
+                # this is a hack to move the .head file from cwd to 
+                # the reduced directory, as there is no option in the config
+                # file for this
+
 
                 final_result_path = os.path.join(
                     self.reduced_dir, self.final_result_name
@@ -1166,6 +1173,16 @@ class Photometric_parser:
                 ]
 
                 self.run_sex(cmd)
+
+                # this is a hack to move the .head file from cwd to 
+                # the reduced directory, as there is no option in the config
+                # file for this
+
+                cwd = os.getcwd()
+
+                head_file_path = os.path.join(cwd, f"{object_name}_{self.stripped_filter_name}.head")
+                new_head_file_path = os.path.join(self.reduced_dir, os.path.basename(head_file_path))
+                os.rename(head_file_path, new_head_file_path)
 
                 with fits.open(self.final_cat_filename) as hdul_table:
                     data_table = hdul_table[2].data
