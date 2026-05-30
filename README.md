@@ -1,9 +1,9 @@
-# NTE IMAGING PIPELINES
+# NTE IMAGING PIPELINE
 
-This repository holds the code developed as a part of the Masters' thesis project
-by Kostas Valeckas, NBI and Nordic Optical Telescope. 
+**This repository holds the code developed as a part of the Masters' thesis project
+by Kostas Valeckas, NBI and Nordic Optical Telescope.** 
 
-## Disclaimer and License
+## Disclaimer 
 
 The code is currently work in progress and any usage in research is at own 
 responsibility for correctness.
@@ -21,20 +21,24 @@ this code uses two other instruments at the Nordic Optical Telescope as proxies:
 ALFOSC (as a proxy for NTE visual imager) and NOTcam (as a proxy for NTE near-infrared 
 imager).
 
+## Documentation
+
+The code is currently only properly described in the thesis project, that is included 
+in this repository.
+
 # Installation 
 
 This section describes how to install the pipeline locally on your own machine. 
 You will both need to install the Python package and the SExtractor, SCAMP and SWarp 
 tools - all desribed in the following.
 
-**NOTE:** the installation can be done using the described [docker image](#using-a-docker-image). This is the simplest way to test the software, if 
-you do not wish to develop it.
+**NOTE:** the most easy way to test and run the software is using the [docker image](#using-a-docker-image). 
 
 ## Clean Python envirorment
 
 To ensure the most stable performance and intstallation, it is **strongly** recommended that you do 
 the installation in a clean Python >= 3.11 envirorment.
- If you do not know how to do so, see the [primer on Python envirorment](#how-to-create-a-clean-python-envirorment) below. 
+ See the [primer on Python envirorments](#how-to-create-a-clean-python-envirorment) below. 
 
 
 ## The Python code
@@ -48,7 +52,8 @@ if you want a non-editable version, or:
 
     pip install -e .
 
-if you want an editable version. 
+if you want an editable version (any changes in the code will be reflected 
+in the installation immedietly). 
 
 To test the installation, run: 
 
@@ -87,24 +92,21 @@ see the help pages for the tool getting printed in the command line.
 ### Using a docker image
 
 The above described needed installations of [Source Extractor](https://www.astromatic.net/software/sextractor/), [SCAMP](https://www.astromatic.net/software/scamp/) and [SWarp](https://www.astromatic.net/software/swarp/) can require some configuration. Therefore, a [Docker container](https://www.docker.com/) is provided with these tools already being on-boarded so the software can be 
-tested and run in a pre-configured envirorment.
+tested and run in a pre-configured envirorment. See [further documentation about docker containers](https://docs.docker.com/docker-hub/quickstart/).
 
-
-```bash
-sudo docker build -t nte_imaging_pipelines .
-```
+To pull down the docker image, use:
 
 ```bash
-sudo docker run -it nte_imaging_pipelines bash
+docker pull kostasvaleckas/nte_imaging_pipeline:latest
 ```
+Then, run the image:
 
 ```bash
-python3 src/run.py /app/test_data/alfosc/GRB250404A alfosc
+docker run -it kostasvaleckas/nte_imaging_pipeline:latest bash
 ```
+This should grant you access to the bash terminal with the pipeline installed 
+together with the test data.
 
-```bash
-python3 src/run.py /app/test_data/notcam/sn2021xel notcam
-```
 # How to create a clean Python envirorment
 
 To ensure the best possible stability of the software and to avoid version conflicts with other Python packages on your system, it is **strongly recommended** to create a clean Python environment for running the software.
