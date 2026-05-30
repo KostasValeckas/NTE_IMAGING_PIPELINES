@@ -1331,24 +1331,19 @@ class Instrument:
                             )
 
                             hdul = frame.hdul.copy()
-                            data_extension = self.get_header_value(
-                                frame.hdul, self.data_extension_keyword, logger
-                            )
+                            data_extension = self.data_hdu_extension
+        
                             gain = self.get_header_value(
-                                frame.hdul, self.gain_keyword, logger
+                                frame.hdul, self.detector.gain, logger
                             )
                             rdnoise = self.get_header_value(
-                                frame.hdul, self.read_noise_keyword, logger
+                                frame.hdul, self.detector.read_noise, logger
                             )
 
-                            astroscrappy.detect_cosmic_rays(
+                            _, frame.data.data = astroscrappy.detect_cosmics(
                                 frame.data.data, gain=gain, readnoise=rdnoise
                             )
 
-                            # write results back to disk and update header
-                            frame.data.data = astroscrappy.get_crr_result(
-                                frame.data.data
-                            )
 
                             hdul[data_extension].header["CRRAPPLY"] = (
                                 True,
@@ -1357,7 +1352,7 @@ class Instrument:
 
                             frame.hdul = hdul
                             write_frame(
-                                output_dir, f"reduced_science_{file}", frame, logger
+                                self, hdul, frame.data, f"reduced_science_{file}",  output_dir, logger
                             )
 
                     else:
