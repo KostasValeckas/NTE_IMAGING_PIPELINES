@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Optional
 from ccdproc import CCDData
 import astropy.units as u
+from astropy.nddata import StdDevUncertainty
 
 """
 A module started for creating custom datatypes, but not fully utilized yet.
@@ -54,8 +55,8 @@ class Processed_frame:
         with 1 and good pixels with 0.
     """
 
-    def __init__(self, hdul, data, bpm):
+    def __init__(self, hdul, data, bpm, uncertainty):
 
         self.hdul = hdul
-        self.data = CCDData(data, unit=u.adu)
+        self.data = CCDData(data, unit=u.adu, uncertainty=StdDevUncertainty(uncertainty) if uncertainty is not None else None)
         self.bpm = bpm

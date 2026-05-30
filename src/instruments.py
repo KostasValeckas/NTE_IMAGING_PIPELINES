@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from doctest import master
 import json
 from typing import Optional
 import os
@@ -11,6 +12,7 @@ import astropy.units as u
 from astropy.io import fits
 from datetime import datetime
 import astroscrappy
+from ccdproc import create_deviation
 
 
 """
@@ -510,6 +512,7 @@ class Instrument:
                 sigma_clip_high_thresh=2,
             )
 
+
             bad_pixel_mask = self.update_bad_pixel_map(
                 master_bias.data,
                 logger,
@@ -564,6 +567,7 @@ class Instrument:
                 f"master_bias_{key}.fits",
                 output_dir,
                 logger,
+                sigma_array=master_bias.uncertainty.array if master_bias.uncertainty is not None else None,
                 bad_pixel_mask=bad_pixel_masks[key],
                 comment=f"Master bias created on {datetime.now().isoformat()} using {len(value['files'])} bias frames with 2-sigma clipping. Bad pixel mask updated based on deviation from median and zero-value pixels.",
                 header_updates={
@@ -805,6 +809,9 @@ class Instrument:
                 sigma_clip_high_thresh=2,
             )
 
+            # dealing with the sigma array explicitly as normalazation is needed
+            master_flat_sigma = master_flat.uncertainty.array if master_flat.uncertainty is not None else None
+            
             bpm_copy = (
                 bad_pixel_masks[key_to_bias].copy().astype(bool)
                 if bad_pixel_masks is not None and key_to_bias in bad_pixel_masks
@@ -831,6 +838,9 @@ class Instrument:
 
             masked_normalized = masked_flat / masked_median
             master_normalized = master_flat / masked_median
+
+            if master_flat_sigma is not None:
+                master_flat_sigma_normalized = np.array(master_flat_sigma / masked_median, dtype=np.float32)
 
             plt.close()
 
@@ -904,6 +914,7 @@ class Instrument:
                 f"master_flat_{key}.fits",
                 output_dir,
                 logger,
+                sigma_array=master_flat_sigma_normalized if master_flat_sigma is not None else None,
                 bad_pixel_mask=bad_pixel_mask,
                 comment=f"Master flat created on {datetime.now().isoformat()} using {len(value['files'])} flat frames with 2-sigma clipping. Bad pixel mask updated based on deviation from median and zero-value pixels.",
                 header_updates=header_updates,
@@ -1159,6 +1170,11 @@ class Instrument:
                     # fallback: create CCDData without header
                     ccd_data = CCDData(hdul[self.data_hdu_extension].data, unit=u.adu)
 
+                gain = self.get_header_value(hdul, self.detector.gain, logger)
+                rdnoise = self.get_header_value(hdul, self.detector.read_noise, logger)
+
+                ccd_data = create_deviation(ccd_data, gain=gain * u.electron / u.adu, readnoise=rdnoise * u.electron)
+
                 # put the object in the object setup
                 object_name = self.get_header_value(hdul, self.object_keyword, logger)
 
@@ -1252,6 +1268,7 @@ class Instrument:
                     f"reduced_science_{file}",
                     output_dir,
                     logger,
+                    sigma_array=ccd_data.uncertainty.array if ccd_data.uncertainty is not None else None,
                     bad_pixel_mask=bad_pixel_mask,
                     comment=f"Science frame reduced on {datetime.now().isoformat()} with dark correction: {not skip_dark}, bias correction: {not skip_bias}, flat correction: {not skip_flats}.",
                     header_updates={
@@ -1419,7 +1436,7 @@ class Instrument:
                 frame = read_frame(output_path, f"reduced_science_{file}", self, logger)
                 bpm = frame.bpm if hasattr(frame, "bpm") else None
                 frame_median = self.safe_median_calc(frame.data, bpm=bpm)
-                skysubbed_frame = frame.data.data - frame_median
+                skysubbed_frame = frame.data.subtract(frame_median * u.adu)
 
                 sky_subtracted_median = self.safe_median_calc(skysubbed_frame, bpm=bpm)
 
@@ -1448,10 +1465,11 @@ class Instrument:
                 write_frame(
                     self,
                     frame.hdul,
-                    skysubbed_frame,
+                    skysubbed_frame.data,
                     f"sky_subtracted_{file}",
                     output_path,
                     logger,
+                    sigma_array = skysubbed_frame.uncertainty.array if skysubbed_frame.uncertainty is not None else None,
                     comment=f"Sky subtracted using frame median on {datetime.now().isoformat()}.",
                     header_updates={
                         "SKYSUB": (
@@ -1506,22 +1524,26 @@ class Instrument:
 
         frame_B = read_frame(output_path, f"reduced_science_{file_B}", self, logger)
 
-        frame_A_data = frame_A.data.data.copy()
+        frame_A_data = frame_A.data.copy()
         frame_A_hdul = frame_A.hdul.copy()
         frame_A_bpm = frame_A.bpm.copy() if hasattr(frame_A, "bpm") else None
 
-        frame_B_data = frame_B.data.data.copy()
+        frame_B_data = frame_B.data.copy()
         frame_B_hdul = frame_B.hdul.copy()
         frame_B_bpm = frame_B.bpm.copy() if hasattr(frame_B, "bpm") else None
 
-        median_A = self.safe_median_calc(frame_A_data, bpm=frame_A_bpm)
-        median_B = self.safe_median_calc(frame_B_data, bpm=frame_B_bpm)
+        median_A = self.safe_median_calc(frame_A_data.data, bpm=frame_A_bpm)
+        median_B = self.safe_median_calc(frame_B_data.data, bpm=frame_B_bpm)
 
         scale_A_B = median_A / median_B
         scale_B_A = median_B / median_A
 
-        skysubtracted_A = frame_A_data - frame_B_data * scale_A_B
-        skysubtracted_B = frame_B_data - frame_A_data * scale_B_A
+
+        scaled_B = frame_B_data.multiply(scale_A_B)
+        scaled_A = frame_A_data.multiply(scale_B_A)
+
+        skysubtracted_A = frame_A_data.subtract(scaled_B)
+        skysubtracted_B = frame_B_data.subtract(scaled_A)
 
         filenames = [file_A, file_B]
         data = [skysubtracted_A, skysubtracted_B]
@@ -1558,10 +1580,12 @@ class Instrument:
             write_frame(
                 self,
                 hduls[i],
-                data[i],
+                data[i].data,
                 f"sky_subtracted_{filename}",
                 output_path,
                 logger,
+                sigma_array=data[i].uncertainty.array if data[i].uncertainty is not None else None,
+                bad_pixel_mask=frame_A_bpm if i == 0 else frame_B_bpm,
                 comment=f"Sky subtracted using A-B dithering method on {datetime.now().isoformat()}.",
                 header_updates={
                     "SKYSUB": (
@@ -1644,11 +1668,7 @@ class Instrument:
 
                     scale_factor = frame_median / first_frame_median
 
-                    scaled_frame = CCDData(
-                        frame.data.data / scale_factor,
-                        unit=u.adu,
-                        meta=frame.data.meta,
-                    )
+                    scaled_frame = frame.data.divide(scale_factor)
 
                     sky_cube.append(scaled_frame)
 
@@ -1704,27 +1724,32 @@ class Instrument:
                 f"master_sky_{object_name}_{setup_key}.fits",
                 output_path,
                 logger,
+                sigma_array=master_sky.uncertainty.array if master_sky.uncertainty is not None else None,
+                bad_pixel_mask=sky_bpm,
+                comment=f"Master sky frame created on {datetime.now().isoformat()} using {'sky frames' if skyframes else 'dithered science frames'} with median scaling. Created from {len(sky_cube)} frames.",
             )
+
             # now loop through the science frames, scale the sky frame to the science
             # frame, and subtract the sky
             # Keep lists of the different components of every frame
             # TODO: this could be refactored
-            raw_file_stack = []
+            image_stack = []
             hduls = []
             bpms = []
             for file in value["files"]:
                 frame = read_frame(output_path, f"reduced_science_{file}", self, logger)
-                raw_file_stack.append(frame.data.data.copy())
+                image_stack.append(frame.data.copy())
                 hduls.append(frame.hdul.copy())
                 bpms.append(frame.bpm.copy())
 
-            for i, frame in enumerate(raw_file_stack):
-                frame_median = self.safe_median_calc(frame, bpm=bpms[i])
+            for i, frame in enumerate(image_stack):
+                frame_median = self.safe_median_calc(frame.data, bpm=bpms[i])
 
                 scale_factor = frame_median / masked_median
-                sky_subtracted = frame - master_sky.data * scale_factor
+                scaled_master = master_sky.multiply(scale_factor)
+                sky_subtracted = frame.subtract(scaled_master)
                 sky_subtracted_median = self.safe_median_calc(
-                    sky_subtracted, bpm=bpms[i]
+                    sky_subtracted.data, bpm=bpms[i]
                 )
                 # plot and write
                 plt.close()
@@ -1732,11 +1757,11 @@ class Instrument:
                 if bpms[i] is not None:
                     mask = np.asarray(bpms[i], dtype=bool)
                     sky_subtracted_masked = np.ma.masked_array(
-                        sky_subtracted, mask=mask
+                        sky_subtracted.data, mask=mask
                     )
 
-                vmin = np.nanpercentile(sky_subtracted, 5)
-                vmax = np.nanpercentile(sky_subtracted, 95)
+                vmin = np.nanpercentile(sky_subtracted.data, 5)
+                vmax = np.nanpercentile(sky_subtracted.data, 95)
                 plt.figure(figsize=(8, 6))
                 plt.imshow(
                     sky_subtracted_masked,
@@ -1762,10 +1787,11 @@ class Instrument:
                 write_frame(
                     self,
                     hdul_copy,
-                    np.array(sky_subtracted.data),
+                    sky_subtracted.data,
                     f"sky_subtracted_{value['files'][i]}",
                     output_path,
                     logger,
+                    sigma_array=sky_subtracted.uncertainty.array if sky_subtracted.uncertainty is not None else None,
                     comment=f"Sky subtracted using sky frames on {datetime.now().isoformat()} with master sky frame created from {len(sky_cube)} frames.",
                     header_updates={
                         "SKYSUB": (
@@ -1976,6 +2002,8 @@ class ALFOSC(Instrument):
     def __init__(self):
         # Define ALFOSC CCD detector parameters
         alfosc_ccd = Detector(
+            gain=("GAIN", 1),
+            read_noise=("RDNOISE", 1),
             window_keyword=("DETWIN1", 0),
             bin_x_keyword=("DETXBIN", 0),
             bin_y_keyword=("DETYBIN", 0),
@@ -2103,6 +2131,9 @@ class NOTCAM(Instrument):
     def __init__(self):
         # Define NOTCAM SWIR3 detector parameters
         notcam_swir3 = Detector(
+            # taking gain and noise from first SWIR array - a small approximation
+            gain = ("GAIN1", 0),
+            read_noise = ("RDNOISE1", 0),
             window_keyword=None,
             bin_x_keyword=None,
             bin_y_keyword=None,
