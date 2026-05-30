@@ -2,9 +2,9 @@ from datetime import datetime
 import numpy as np
 import os
 from astropy.io import fits
-from enum import Enum
 from logging import Logger
 from datatypes import Processed_frame
+
 
 """
 Module for general IO (mostly FITS file handling).
@@ -142,6 +142,7 @@ def write_frame(
     write_name,
     output_path,
     logger: Logger,
+    sigma_array = None,
     bad_pixel_mask=None,
     comment=None,
     header_updates=None,
@@ -195,11 +196,32 @@ def write_frame(
 
     data_hdu.data = master_frame.copy()
 
-    # append the bad pixel mask as a new HDU to the HDUList
-    orig_header = hdul[instrument.data_hdu_extension].header
+    # TODO: a lot of repeated code, could be refactored, especially for 
+    # existing entry checking
 
-    # TODO: the following code assumes that bpm hdul is always data + 1
-    # and masked_array hdul is data + 2 - make more flexible?
+    if sigma_array is not None:
+        sigma_hdu = fits.ImageHDU(
+            data=sigma_array.astype(np.float32), name="ERROR"
+        )
+
+        # check if an error array already exists in the hdul - 
+        # if so - override, if not - append
+
+        sigma_exists = False
+
+        try:
+            _ = hdul["ERROR"]
+            sigma_exists = True
+        except IndexError:
+            logger.info("No existing ERROR HDU found, will create new one.")
+        except Exception as e:
+            logger.warning(f"Error checking for existing ERROR HDU: {e}, will create new one.")
+
+        if sigma_exists:
+            hdul["ERROR"] = sigma_hdu
+        else:
+            hdul.append(sigma_hdu)
+
 
     if bad_pixel_mask is not None:
         bad_pixel_hdu = fits.ImageHDU(
@@ -211,29 +233,33 @@ def write_frame(
 
         bad_pixel_hdu.header.add_comment("Bad pixel mask for the frame")
         # if there exists a bpm - override
-        if len(hdul) >= instrument.data_hdu_extension + 2:
-            hdul[instrument.data_hdu_extension + 1] = bad_pixel_hdu
-        # else - create a bpm entry
+        bpm_exists = False
+
+        try:
+            _ = hdul["BAD_PIXEL_MASK"]
+            bpm_exists = True
+        except IndexError:
+            logger.info("No existing BAD_PIXEL_MASK HDU found, will create new one.")
+        except Exception as e:
+            logger.warning(f"Error checking for existing BAD_PIXEL_MASK HDU: {e}, will create new one.")
+
+        if bpm_exists:
+            hdul["BAD_PIXEL_MASK"] = bad_pixel_hdu
         else:
             hdul.append(bad_pixel_hdu)
 
-        # mask the data if bpm is provided and append to the hdul
+        # mask the data and append that also
 
         masked_data_hdul = data_hdu.copy()
         masked_data_hdul.data = master_frame.copy()
         masked_data_hdul.data[np.array(bad_pixel_hdu.data, dtype=bool)] = np.nan
         masked_data_hdul.header["EXTNAME"] = "MASKED_FRAME"
 
-        hdul.append(masked_data_hdul)
-
-    elif len(hdul) >= instrument.data_hdu_extension + 3:
-
-        bad_pixel_hdu = hdul[instrument.data_hdu_extension + 1]
-
-        masked_data_hdul = hdul[instrument.data_hdu_extension + 2]
-        masked_data_hdul.data = master_frame.copy()
-        masked_data_hdul.data[np.array(bad_pixel_hdu.data, dtype=bool)] = np.nan
-        masked_data_hdul.header["EXTNAME"] = "MASKED_FRAME"
+        # if bpm exists, assume masked data array exists and override, if not - append
+        if bpm_exists:
+            hdul["MASKED_FRAME"] = masked_data_hdul
+        else:
+            hdul.append(masked_data_hdul)
 
     # update header to record creation
     try:
@@ -286,5 +312,6 @@ def read_frame(output_path, name, instrument, logger: Logger):
 
     frame_data = hdul[instrument.data_hdu_extension].data
     bpm = hdul["BAD_PIXEL_MASK"].data if "BAD_PIXEL_MASK" in hdul else None
+    uncertainty = hdul["ERROR"].data if "ERROR" in hdul else None
 
-    return Processed_frame(hdul, frame_data, bpm)
+    return Processed_frame(hdul, frame_data, bpm, uncertainty)

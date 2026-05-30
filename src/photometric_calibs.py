@@ -114,7 +114,7 @@ class Photometric_parser:
         Wrapper for running Source Extractor with the given command.
         Prints the command being executed for logging purposes.
         """
-        self.logger.info("Executing:", " ".join(shlex.quote(a) for a in command))
+        print("Executing:", " ".join(shlex.quote(a) for a in command))
         subprocess.run(command, cwd=self.reduced_dir, check=True)
 
     def run_scamp(self, command):
@@ -122,7 +122,7 @@ class Photometric_parser:
         Wrapper for running SCAMP with the given command.
         Prints the command being executed for logging purposes.
         """
-        self.logger.info("Executing:", " ".join(shlex.quote(a) for a in command))
+        print("Executing:", " ".join(shlex.quote(a) for a in command))
         subprocess.run(command, cwd=self.reduced_dir, check=True)
 
     def run_swarp(self, command):
@@ -130,7 +130,7 @@ class Photometric_parser:
         Wrapper for running SWarp with the given command.
         Prints the command being executed for logging purposes.
         """
-        self.logger.info("Executing:", " ".join(shlex.quote(a) for a in command))
+        print("Executing:", " ".join(shlex.quote(a) for a in command))
         subprocess.run(command, cwd=self.reduced_dir, check=True)
 
     def plot_apertures(self, masked_frame, good_objects, filename, linewidth=1):
@@ -433,11 +433,12 @@ class Photometric_parser:
         # write the zeropoints to the table
         data_table[f"ZP_{filter_string}"] = np.nan
 
-        # basic quality mask (instrumental sanity checks)
+        # basic quality mask (instrumental sanity checks) and only good detections
         good = (
             np.isfinite(data_table["MAG_AUTO"])
             & np.isfinite(data_table["FLUX_AUTO"])
             & (data_table["FLUX_AUTO"] > 0)
+            & (data_table["FLAGS"] == 0)
         )
 
         # apply zeropoint to create calibrated magnitude array
@@ -457,6 +458,7 @@ class Photometric_parser:
         data_table["DEC"] = dec
 
         valid = np.isfinite(calibrated_mag)
+
 
         # build a compact table containing only sexagesimal RA (hh:mm:ss), DEC (dd:mm:ss), and calibrated magnitude
         coords = SkyCoord(ra * u.deg, dec * u.deg)
@@ -690,7 +692,7 @@ class Photometric_parser:
         good_table = (
             np.isfinite(data_table["MAG_AUTO"])
             & np.isfinite(flux_vals)
-            & (flux_vals > 0)
+            & (flux_vals > 0) & data_table["FLAGS"] == 0 # only good detections
         )
         calibrated_mag = np.full(len(data_table), np.nan)
         calibrated_mag_error = np.full(len(data_table), np.nan)
@@ -1160,7 +1162,10 @@ class Photometric_parser:
                     hdul = open_fits_file(file_path, self.logger)
 
                     data = hdul[1].data
-                    bpm = hdul[2].data
+                    bpm = hdul["BAD_PIXEL_MASK"].data
+                    error = hdul["ERROR"].data
+
+
 
                     exptimes.append(
                         get_header_value(
@@ -1174,12 +1179,16 @@ class Photometric_parser:
                     x_end = int(x_size * (1 - self.mask_x_fraction))
                     y_end = int(y_size * (1 - self.mask_y_fraction))
 
-                    # we use this as a weight map for source extraction
-                    inverted_bpm = np.where(bpm == 0, 1, 0)
-                    inverted_bpm[0:y_start, :] = 0
-                    inverted_bpm[y_end:, :] = 0
-                    inverted_bpm[:, 0:x_start] = 0
-                    inverted_bpm[x_end, :] = 0
+                    # construct a weight map from bpm and errors
+
+                    weight_array = 1/(error**2)
+
+                    # construct a weight map from bpm and errors
+                    weight_array[bpm==1] = 0
+                    weight_array[0:y_start, :] = 0
+                    weight_array[y_end:, :] = 0
+                    weight_array[:, 0:x_start] = 0
+                    weight_array[x_end, :] = 0
 
                     # write to disc to comply so it can be used by SExtractor
 
@@ -1190,7 +1199,7 @@ class Photometric_parser:
                     weights_filenames.append(weights_filename)
 
                     fits.writeto(
-                        weights_filename, inverted_bpm.astype(np.uint8), overwrite=True
+                        weights_filename, weight_array.astype(np.float32), overwrite=True
                     )
 
                     cat_filename = os.path.join(
