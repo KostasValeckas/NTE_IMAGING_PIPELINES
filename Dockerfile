@@ -20,4 +20,4 @@ RUN apt-get update && apt-get install -y \
 RUN ln -s /usr/bin/source-extractor /usr/local/bin/sex
 
 COPY . /app
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install .

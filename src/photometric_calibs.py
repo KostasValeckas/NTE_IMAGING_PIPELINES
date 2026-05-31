@@ -99,9 +99,16 @@ class Photometric_parser:
         # the script directory
         SCRIPT_DIR = Path(__file__).resolve().parent
 
+        # docker container fallback
+        if SCRIPT_DIR == Path("/usr/local/lib/python3.10/dist-packages/"):
+            SCRIPT_DIR = Path("/app/src")
+
         self.sex_param = str(
             SCRIPT_DIR / ".." / "source_extractor_files" / "output.param"
         )  # uniform for all instruments
+
+
+
 
     def determine_configurations(self):
         # TODO might not need this - keep for API
@@ -1476,9 +1483,11 @@ class ALFOSC_parser(Photometric_parser):
 
         SCRIPT_DIR = Path(__file__).resolve().parent
 
-        self.sex_config = str(
-            SCRIPT_DIR / ".." / "source_extractor_files" / "alfosc.sex"
-        )
+        # docker container fallback
+        if SCRIPT_DIR == Path("/usr/local/lib/python3.10/dist-packages/"):
+            SCRIPT_DIR = Path("/app/src")
+
+        self.sex_config = str(SCRIPT_DIR / ".." / "source_extractor_files" / "alfosc.sex")
 
         self.scamp_config = str(SCRIPT_DIR / ".." / "scamp_files" / "alfosc.conf")
 
@@ -1608,6 +1617,10 @@ class NOTCAM_parser(Photometric_parser):
         # pathes to configuration files for SExtractor, SCAMP and SWarp.
 
         SCRIPT_DIR = Path(__file__).resolve().parent
+
+        # docker container fallback
+        if SCRIPT_DIR == Path("/usr/local/lib/python3.10/dist-packages/"):
+            SCRIPT_DIR = Path("/app/src")
 
         self.sex_config = str(
             SCRIPT_DIR / ".." / "source_extractor_files" / "notcam.sex"
