@@ -1,4 +1,4 @@
-# NTE IMAGING PIPELINE
+# NTE IMAGING PIPELINES
 
 **This repository holds the code developed as a part of the Masters' thesis project
 by Kostas Valeckas, NBI and Nordic Optical Telescope.** 
