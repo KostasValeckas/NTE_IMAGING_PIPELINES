@@ -15,7 +15,7 @@ responsibility for correctness.
 This project contains a fully automatic data processing pipeline for astronomical
 imaging in the visual and near infrared domains.
 
-This project is developed with the goal to prepare imaging pipelines for the 
+This project is developed with the goal to prepare the imaging pipeline for the 
 Nordic Optical Telescope Transient Explorer (NTE). As this instrument is under developtment, 
 this code uses two other instruments at the Nordic Optical Telescope as proxies: 
 ALFOSC (as a proxy for NTE visual imager) and NOTcam (as a proxy for NTE near-infrared 
@@ -23,7 +23,7 @@ imager).
 
 ## Documentation
 
-The code is currently only properly described in the thesis project, that is included 
+The code is currently only properly described in the thesis paper, that is included 
 in this repository.
 
 # Installation 
@@ -53,7 +53,7 @@ if you want a non-editable version, or:
     pip install -e .
 
 if you want an editable version (any changes in the code will be reflected 
-in the installation immedietly). 
+in the installation immediately). 
 
 To test the installation, run: 
 
