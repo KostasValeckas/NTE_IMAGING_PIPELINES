@@ -199,23 +199,35 @@ def write_frame(
     # TODO: a lot of repeated code, could be refactored, especially for 
     # existing entry checking
 
+    # check bools for handling existing HDUs - if they exist, override, if not - append
+    sigma_exists = False
+    bpm_exists = False
+    new_bpm = False
+
+
+    try:
+        _ = hdul["BAD_PIXEL_MASK"]
+        bpm_exists = True
+    except IndexError:
+        logger.info("No existing BAD_PIXEL_MASK HDU found, will create new one.")
+    except Exception as e:
+        logger.warning(f"Error checking for existing BAD_PIXEL_MASK HDU: {e}, will create new one.")
+
+
+
+    try:
+        _ = hdul["ERROR"]
+        sigma_exists = True
+    except IndexError:
+        logger.info("No existing ERROR HDU found, will create new one.")
+    except Exception as e:
+        logger.warning(f"Error checking for existing ERROR HDU: {e}, will create new one.")
+
+
     if sigma_array is not None:
         sigma_hdu = fits.ImageHDU(
             data=sigma_array.astype(np.float32), name="ERROR"
         )
-
-        # check if an error array already exists in the hdul - 
-        # if so - override, if not - append
-
-        sigma_exists = False
-
-        try:
-            _ = hdul["ERROR"]
-            sigma_exists = True
-        except IndexError:
-            logger.info("No existing ERROR HDU found, will create new one.")
-        except Exception as e:
-            logger.warning(f"Error checking for existing ERROR HDU: {e}, will create new one.")
 
         if sigma_exists:
             hdul["ERROR"] = sigma_hdu
@@ -232,23 +244,22 @@ def write_frame(
         bad_pixel_hdu.header["EXTNAME"] = "BAD_PIXEL_MASK"
 
         bad_pixel_hdu.header.add_comment("Bad pixel mask for the frame")
-        # if there exists a bpm - override
-        bpm_exists = False
 
-        try:
-            _ = hdul["BAD_PIXEL_MASK"]
-            bpm_exists = True
-        except IndexError:
-            logger.info("No existing BAD_PIXEL_MASK HDU found, will create new one.")
-        except Exception as e:
-            logger.warning(f"Error checking for existing BAD_PIXEL_MASK HDU: {e}, will create new one.")
 
         if bpm_exists:
             hdul["BAD_PIXEL_MASK"] = bad_pixel_hdu
+
         else:
             hdul.append(bad_pixel_hdu)
+            new_bpm = True
+
+        bpm_exists = True
+
+    if bpm_exists:
 
         # mask the data and append that also
+
+        bad_pixel_hdu = hdul["BAD_PIXEL_MASK"]
 
         masked_data_hdul = data_hdu.copy()
         masked_data_hdul.data = master_frame.copy()
@@ -256,7 +267,7 @@ def write_frame(
         masked_data_hdul.header["EXTNAME"] = "MASKED_FRAME"
 
         # if bpm exists, assume masked data array exists and override, if not - append
-        if bpm_exists:
+        if not new_bpm:
             hdul["MASKED_FRAME"] = masked_data_hdul
         else:
             hdul.append(masked_data_hdul)
